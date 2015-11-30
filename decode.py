@@ -128,11 +128,12 @@ def import_hitbox(filepath, scale):
     bm = bmesh.new()
     fh = open(filepath, "rb")
     polyhedron_count = struct.unpack("h", fh.read(2))[0]
+    material_layer = bm.faces.layers.int.new("revolt_material")
     
     # Loops through each polyhedron.
     for i in range(polyhedron_count):
         type, surface = struct.unpack("ll", fh.read(8))
-        
+
         # Read some data.
         plane_data = [struct.unpack("ffff", fh.read(16)) for n in range(5)]
         bbox = struct.unpack("ffffff", fh.read(24))
@@ -158,6 +159,7 @@ def import_hitbox(filepath, scale):
         # Creates a face if we've got 3 or more vertices.
         if len(vertices) >= 3:
             face = bm.faces.new(vertices)
+            face[material_layer] = surface
             
     fh.close();
     

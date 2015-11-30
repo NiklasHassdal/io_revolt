@@ -155,10 +155,13 @@ def export_hitbox(filepath, scale, mesh = None):
     bm.from_mesh(mesh or bpy.context.object.data)
     fh = open(filepath, "wb")
     fh.write(struct.pack("h", len(bm.faces)))
+    material_layer = bm.faces.layers.int.get("revolt_material") or bm.faces.layers.int.new("revolt_material")
     
     # Loops through each face.
     for face in bm.faces:
-        fh.write(struct.pack("ll", 0 if len(face.verts) < 4 else 1, 0))
+    
+        # Writes face type (tris / quad) and material. (see panels/face_properties_panel.py for available material types)
+        fh.write(struct.pack("ll", 0 if len(face.verts) < 4 else 1, face[material_layer]))
         
         # Writes the floor plane
         normal = face.normal.copy()
