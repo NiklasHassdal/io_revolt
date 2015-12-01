@@ -97,7 +97,7 @@ def export_world(filepath, scale, mesh = None):
 
 # Exports a level/world according to the settings in the "Re-Volt world export" panel.
 def export_world_full():
-    world_parameters = bpy.context.scene.revolt_world_parameters
+    world_parameters = bpy.context.scene.revolt_world
     full_path = world_parameters.path
     path = [x for x in re.split("[/\\\\]", full_path) if x != ""]
     

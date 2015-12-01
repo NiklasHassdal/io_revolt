@@ -70,8 +70,8 @@ def import_world(filepath, scale, include_objects, include_hitboxes, hide_hitbox
     bm = bmesh.new()
     fh = open(filepath, "rb")
     mesh_count = struct.unpack("l", fh.read(4))[0]
-    bpy.context.scene.revolt_world_parameters.path = os.path.dirname(fh.name)
-    bpy.context.scene.revolt_world_parameters.scale = scale
+    bpy.context.scene.revolt_world.path = os.path.dirname(fh.name)
+    bpy.context.scene.revolt_world.scale = scale
     
     # Loops through each mesh
     for i in range(mesh_count):
@@ -89,7 +89,6 @@ def import_world(filepath, scale, include_objects, include_hitboxes, hide_hitbox
         hitbox = import_hitbox(os.path.splitext(filepath)[0] + ".ncp", scale)
         if hitbox != None:
             hitbox.hide = hide_hitboxes
-            bpy.context.scene.revolt_world_parameters.hitbox_object = hitbox.name
     
     # Import objects if include_objects is True.
     if include_objects:
@@ -100,21 +99,21 @@ def import_world(filepath, scale, include_objects, include_hitboxes, hide_hitbox
     if os.path.isfile(inf_path):
         fh = open(inf_path, "r")
         data = ParameterBlock(fh)
-        bpy.context.scene.revolt_world_parameters.name = (data.get_parameter("NAME") or "  ")[1:-1]
-        bpy.context.scene.revolt_world_parameters.farclip = float(data.get_parameter("FARCLIP") or "0") * scale
-        bpy.context.scene.revolt_world_parameters.fogstart = float(data.get_parameter("FOGSTART") or "0") * scale
+        bpy.context.scene.revolt_world.name = (data.get_parameter("NAME") or "  ")[1:-1]
+        bpy.context.scene.revolt_world.farclip = float(data.get_parameter("FARCLIP") or "0") * scale
+        bpy.context.scene.revolt_world.fogstart = float(data.get_parameter("FOGSTART") or "0") * scale
         fogcolor = [float(x) / 255 for x in data.get_parameters("FOGCOLOR") or []]
         if len(fogcolor) == 3:
-            bpy.context.scene.revolt_world_parameters.fogcolor = Color(fogcolor)
+            bpy.context.scene.revolt_world.fogcolor = Color(fogcolor)
         
         # Gets startpos and startrot.
         startpos = [float(x) for x in data.get_parameters("STARTPOS") or []]
         startrot = float(data.get_parameter("STARTROT") or "0")
         if len(startpos) == 3:
-            obj = add_revolt_startpos(bpy.context.scene.revolt_world_parameters.scale)
+            obj = add_revolt_startpos(bpy.context.scene.revolt_world.scale)
             obj.location = revolt_fix(startpos, scale)
             obj.rotation_euler = Euler((0, 0, -startrot * pi * 2), "XYZ")
-            bpy.context.scene.revolt_world_parameters.startpos_object = obj.name
+            bpy.context.scene.revolt_world.startpos_object = obj.name
         
         fh.close()
 
@@ -233,7 +232,7 @@ def import_objects(filepath, scale, include_hitboxes):
 
 # Imports a car. (Parameters.txt)
 def import_car(filepath, scale):
-    car_parameters = bpy.context.scene.revolt_car_parameters
+    car_properties = bpy.context.scene.revolt_car
     fh = open(filepath, "r")
     
     # Split up path.
@@ -249,10 +248,10 @@ def import_car(filepath, scale):
     data = ParameterBlock(fh)
     
     # Sets some parameters.
-    car_parameters.path = "\\".join(path[:-1]) + "\\"
-    car_parameters.name = (data.get_parameter("Name") or "  ")[1:-1]
-    car_parameters.engine_class = data.get_parameter("Class") or "0"
-    car_parameters.steer_rate = float(data.get_parameter("SteerRate") or "0")
+    car_properties.path = "\\".join(path[:-1]) + "\\"
+    car_properties.name = (data.get_parameter("Name") or "  ")[1:-1]
+    car_properties.engine_class = data.get_parameter("Class") or "0"
+    car_properties.steer_rate = float(data.get_parameter("SteerRate") or "0")
     
     # Loads the texture if it exists.
     texture_path = revolt_path + (data.get_parameter("TPAGE") or "  ")[1:-1]
@@ -281,11 +280,9 @@ def import_car(filepath, scale):
             
             # If wheel was loaded successfully.
             if wheel_obj != None:
-                # Sets the wheel name.
-                wheel_obj.name = "WHEEL " + str(i)
-                
+            
                 # Sets some parameters.
-                wheel_parameters = car_parameters.get_wheel(i)
+                wheel_parameters = [car_properties.wheel0, car_properties.wheel1, car_properties.wheel2, car_properties.wheel3][i]
                 wheel_parameters.object = wheel_obj.name
                 wheel_parameters.is_present = wheel.get_parameter("IsPresent") == "TRUE"
                 wheel_parameters.is_powered = wheel.get_parameter("IsPowered") == "TRUE"
@@ -317,9 +314,6 @@ def import_car(filepath, scale):
                 
                 # If axle was loaded successfully.
                 if axle_obj != None:
-                    
-                    # Sets the axle name.
-                    axle_obj.name = "AXLE " + str(i)
                     
                     # Sets the location.
                     location = axle.get_parameters("Offset")
@@ -356,9 +350,6 @@ def import_car(filepath, scale):
                 # If spring was loaded successfully.
                 if spring_obj != None:
                     
-                    # Sets the spring name.
-                    spring_obj.name = "SPRING " + str(i)
-                    
                     # Sets the location.
                     location = spring.get_parameters("Offset")
                     if location != None and len(location) == 3:
@@ -379,8 +370,7 @@ def import_car(filepath, scale):
         
         # If the body was loaded sucessfully.
         if obj != None:
-            obj.name = "BODY"
-            car_parameters.body_object = obj.name
+            car_properties.body_object = obj.name
             
             # Sets the location.
             location = body.get_parameters("Offset")
