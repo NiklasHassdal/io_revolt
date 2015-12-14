@@ -15,7 +15,14 @@ class RevoltFacePropertiesPanel(bpy.types.Panel):
     
     def draw(self, context):
         self.layout.prop(context.object.data.revolt, "face_material")
-
+        self.layout.prop(context.object.data.revolt, "face_double_sided")
+        self.layout.prop(context.object.data.revolt, "face_translucent")
+        self.layout.prop(context.object.data.revolt, "face_mirror")
+        self.layout.prop(context.object.data.revolt, "face_additive")
+        self.layout.prop(context.object.data.revolt, "face_texture_animation")
+        self.layout.prop(context.object.data.revolt, "face_no_envmapping")
+        self.layout.prop(context.object.data.revolt, "face_envmapping")
+        
 class WorldExportPanel(bpy.types.Panel):
     bl_label = "Re-Volt world export"
     bl_space_type = "PROPERTIES"
@@ -23,17 +30,19 @@ class WorldExportPanel(bpy.types.Panel):
     bl_context = "render"
     
     def draw(self, context):
+        self.layout.prop(context.scene.revolt_world, "scale")
+        self.layout.prop(context.scene.revolt_world, "up_axis")
+        self.layout.prop(context.scene.revolt_world, "forward_axis")
         self.layout.prop(context.scene.revolt_world, "path")
         self.layout.prop(context.scene.revolt_world, "name")
         self.layout.prop_search(context.scene.revolt_world, "startpos_object", context.scene, "objects")
         self.layout.prop(context.scene.revolt_world, "farclip")
         self.layout.prop(context.scene.revolt_world, "fogstart")
         self.layout.prop(context.scene.revolt_world, "fogcolor")
-        self.layout.prop(context.scene.revolt_world, "scale")
         
-        self.layout.operator(WorldExportOperator.bl_idname)
+        self.layout.operator(EXPORT_SCENE_OT_revolt_world_complete.bl_idname)
         
-class WorldExportOperator(bpy.types.Operator):
+class EXPORT_SCENE_OT_revolt_world_complete(bpy.types.Operator):
     bl_idname = "export_scene.revolt_world_complete"
     bl_label = "Export Re-Volt world"
     
@@ -41,7 +50,7 @@ class WorldExportOperator(bpy.types.Operator):
         export_world_full()
         return {'FINISHED'}
 
-class RevoltMeshPropertiesPanel(bpy.types.Panel):
+class DATA_PT_revolt_mesh(bpy.types.Panel):
     bl_label = "Re-Volt mesh properties"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
@@ -52,7 +61,23 @@ class RevoltMeshPropertiesPanel(bpy.types.Panel):
         self.layout.prop(context.object.data.revolt, "export_as_ncp")
         self.layout.prop(context.object.data.revolt, "export_as_w")
 
-class CarExportPanel(bpy.types.Panel):
+class OBJECT_PT_revolt_object(bpy.types.Panel):
+    bl_label = "Re-Volt object properties"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "object"
+    
+    def draw(self, context):
+        self.layout.prop(context.object.revolt, "type")
+        
+        if context.object.revolt.type == "OBJECT":
+            self.layout.prop(context.object.revolt, "object_type")
+            self.layout.prop(context.object.revolt, "flag1_long")
+            self.layout.prop(context.object.revolt, "flag2_long")
+            self.layout.prop(context.object.revolt, "flag3_long")
+            self.layout.prop(context.object.revolt, "flag4_long")
+
+class RENDER_PT_revolt_car(bpy.types.Panel):
     bl_label = "Re-Volt car export"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"

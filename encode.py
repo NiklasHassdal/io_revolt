@@ -4,9 +4,10 @@
 import bpy, bmesh, struct, os, re
 from mathutils import Color, Vector, Matrix
 from math import sqrt, pow, ceil, floor, pi
+from bpy_extras.io_utils import axis_conversion
 
 # This method is used to encode a bmesh. If you want to you can define which faces and verts to use. We do this when encoding W-files for example.
-def encode_mesh(fh, bm, scale, include_textures, faces = None, verts = None):
+def encode_mesh(fh, bm, matrix, include_textures, faces = None, verts = None):
     if faces == None or verts == None:
         faces = list(bm.faces)
         verts = list(bm.verts)
@@ -19,6 +20,7 @@ def encode_mesh(fh, bm, scale, include_textures, faces = None, verts = None):
     uv_lay = bm.loops.layers.uv.active
     color_lay = bm.loops.layers.color.active
     alpha_lay = bm.loops.layers.color.get("Alpha")
+    type_lay = bm.faces.layers.int.get("revolt_face_type")
     
     # Loops through each polygon.
     for face in faces:
@@ -30,7 +32,8 @@ def encode_mesh(fh, bm, scale, include_textures, faces = None, verts = None):
             texture = 0
         
         # Writes type and texture.
-        fh.write(struct.pack("hh", 0 if len(face.verts) < 4 else 1, texture))
+        type = face[type_lay] & ~1 + len(face.verts) > 3
+        fh.write(struct.pack("hh", type, texture))
         looping = [2, 1, 0, 3] if len(face.verts) < 4 else [3, 2, 1, 0]
         
         # Writes vertex indices.
@@ -50,22 +53,22 @@ def encode_mesh(fh, bm, scale, include_textures, faces = None, verts = None):
     
     # Loops through each vertex
     for vertex in verts:
-        co = revolt_fix(vertex.co, scale)
+        co = Vector(vertex.co) * matrix
         normal = revolt_fix(vertex.normal, 1)
         fh.write(struct.pack("fff", co[0], co[1], co[2]))
         fh.write(struct.pack("fff", normal[0], normal[1], normal[2]))
         
 # Exports a model. (PRM-/M-file)
-def export_model(filepath, scale, include_textures, mesh = None):
+def export_model(filepath, matrix, include_textures, mesh = None):
     bm = bmesh.new()
     bm.from_mesh(mesh or bpy.context.object.data)
     fh = open(filepath, "wb")
-    encode_mesh(fh, bm, scale, include_textures)
+    encode_mesh(fh, bm, matrix, include_textures)
     fh.close()
     bm.free()
 
 # Exports a level/world. (W-file)
-def export_world(filepath, scale, mesh = None):
+def export_world(filepath, matrix, mesh = None):
     bm = bmesh.new()
     bm.from_mesh(mesh or bpy.context.object.data)
     fh = open(filepath, "wb")
@@ -73,17 +76,17 @@ def export_world(filepath, scale, mesh = None):
     
     # Loops through each face.
     for face in bm.faces:
-        c = revolt_fix(face.calc_center_bounds(), scale)
-        r = max([get_distance(revolt_fix(v.co, scale), c) for v in face.verts])
+        c = Vector(face.calc_center_bounds()) * matrix
+        r = max([get_distance(Vector(v.co) * matrix, c) for v in face.verts])
         fh.write(struct.pack("ffff", c[0], c[1], c[2], r))
-        p1 = revolt_fix([min([v.co.x for v in face.verts]), min([v.co.y for v in face.verts]), min([v.co.z for v in face.verts])], scale)
-        p2 = revolt_fix([max([v.co.x for v in face.verts]), max([v.co.y for v in face.verts]), max([v.co.z for v in face.verts])], scale)
+        p1 = Vector([min([v.co.x for v in face.verts]), min([v.co.y for v in face.verts]), min([v.co.z for v in face.verts])]) * matrix
+        p2 = Vector([max([v.co.x for v in face.verts]), max([v.co.y for v in face.verts]), max([v.co.z for v in face.verts])]) * matrix
         fh.write(struct.pack("ffffff", p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]))
-        encode_mesh(fh, bm, scale, True, [face], list(face.verts))
+        encode_mesh(fh, bm, matrix, True, [face], list(face.verts))
     
     # Writes a "FunnyBall" surrounding the whole level
-    p1 = revolt_fix([min([v.co.x for v in bm.verts]), min([v.co.y for v in bm.verts]), min([v.co.z for v in bm.verts])], scale)
-    p2 = revolt_fix([max([v.co.x for v in bm.verts]), max([v.co.y for v in bm.verts]), max([v.co.z for v in bm.verts])], scale)
+    p1 = Vector([min([v.co.x for v in bm.verts]), min([v.co.y for v in bm.verts]), min([v.co.z for v in bm.verts])]) * matrix
+    p2 = Vector([max([v.co.x for v in bm.verts]), max([v.co.y for v in bm.verts]), max([v.co.z for v in bm.verts])]) * matrix
     fh.write(struct.pack("lffff", 1, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, (p1.z + p2.z) / 2, get_distance(p1, p2) / 2))
     fh.write(struct.pack("l", len(bm.faces)))
     for i in range(len(bm.faces)):
@@ -100,6 +103,7 @@ def export_world_full():
     world_parameters = bpy.context.scene.revolt_world
     full_path = world_parameters.path
     path = [x for x in re.split("[/\\\\]", full_path) if x != ""]
+    matrix = axis_conversion(from_up = world_parameters.up_axis, from_forward = world_parameters.forward_axis).to_4x4() * (1 / world_parameters.scale)
     
     # Exits if the directory doesn't exist.
     if not os.path.isdir(full_path):
@@ -110,15 +114,15 @@ def export_world_full():
     
         # Exports to a W-file.
         if mesh.revolt.export_as_w:
-            export_world(full_path + bpy.path.ensure_ext(mesh.name, ".w"), world_parameters.scale, mesh)
+            export_world(full_path + bpy.path.ensure_ext(mesh.name, ".w"), matrix, mesh)
             
         # Exports to a PRM-file.
         if mesh.revolt.export_as_prm:
-            export_model(full_path + bpy.path.ensure_ext(mesh.name, ".prm"), world_parameters.scale, True, mesh)
+            export_model(full_path + bpy.path.ensure_ext(mesh.name, ".prm"), matrix, True, mesh)
             
         # Exports to a NCP-file.
         if mesh.revolt.export_as_ncp:
-            export_hitbox(full_path + bpy.path.ensure_ext(mesh.name, ".ncp"), world_parameters.scale, mesh)
+            export_hitbox(full_path + bpy.path.ensure_ext(mesh.name, ".ncp"), matrix, mesh)
             
     # Exports each texture.
     bpy.context.scene.render.image_settings.file_format = "BMP"
@@ -128,8 +132,11 @@ def export_world_full():
         temp_image.save_render("\\".join(path) + "\\" + path[-1] + os.path.splitext(image.name)[0][-1] + ".bmp")
         bpy.data.images.remove(temp_image)
     
-    # Exports all objects. (FIN-file)
-    export_objects("\\".join(path) + "\\" + path[-1] + ".fin", world_parameters.scale, [obj for obj in bpy.context.scene.objects if obj.type == "MESH" and obj.data.revolt.export_as_prm])
+    # Exports world models. (FIN-file)
+    export_world_models("\\".join(path) + "\\" + path[-1] + ".fin", matrix, [obj for obj in bpy.context.scene.objects if obj.type == "MESH" and obj.data.revolt.export_as_prm])
+    
+    # Exports world objects. (FOB-file)
+    export_world_objects("\\".join(path) + "\\" + path[-1] + ".fob", matrix, [obj for obj in bpy.data.objects if obj.revolt.type == "OBJECT"])
     
     # Exports the INF-file.
     fh = open("\\".join(path) + "\\" + path[-1] + ".inf", "w")
@@ -140,60 +147,66 @@ def export_world_full():
         params["STARTPOS"] =  "0 0 0"
         params["STARTROT"] = "0"
     else:
-        params["STARTPOS"] = " ".join([str(x) for x in revolt_fix(startpos_object.location, world_parameters.scale)])
+        params["STARTPOS"] = " ".join([str(x) for x in Vector(startpos_object.location) * matrix])
         params["STARTROT"] = str((-startpos_object.rotation_euler.z % (pi * 2)) / (pi * 2))
-    params["FARCLIP"] = str(world_parameters.farclip / world_parameters.scale)
-    params["FOGSTART"] = str(world_parameters.fogstart / world_parameters.scale)
+    params["FARCLIP"] = str(world_parameters.farclip * min(matrix.to_scale()))
+    params["FOGSTART"] = str(world_parameters.fogstart * min(matrix.to_scale()))
     params["FOGCOLOR"] = " ".join([str(int(x * 255)) for x in world_parameters.fogcolor])
     char_count = max([len(x) for x in params]) + 5
     fh.writelines([p.ljust(char_count) + params[p] + "\n" for p in params])
     fh.close()
 
 # Exports a hitbox. (NCP-file)
-def export_hitbox(filepath, scale, mesh = None):
+def export_hitbox(filepath, matrix, mesh = None):
     bm = bmesh.new()
     bm.from_mesh(mesh or bpy.context.object.data)
     fh = open(filepath, "wb")
     fh.write(struct.pack("h", len(bm.faces)))
     material_layer = bm.faces.layers.int.get("revolt_material") or bm.faces.layers.int.new("revolt_material")
     
+    print(fh.name)
+    
     # Loops through each face.
     for face in bm.faces:
-    
         # Writes face type (tris / quad) and material. (see panels/face_properties_panel.py for available material types)
         fh.write(struct.pack("ll", 0 if len(face.verts) < 4 else 1, face[material_layer]))
         
         # Writes the floor plane
-        normal = face.normal.copy()
+        normal = face.normal * matrix
         normal.length = 1
-        point = face.verts[0].co
+        point = face.verts[0].co * matrix
         distance = -point.x * normal.x - point.y * normal.y - point.z * normal.z
-        fh.write(struct.pack("ffff", normal[0], -normal[2], normal[1], distance / scale))
+        fh.write(struct.pack("ffff", normal[0], normal[1], normal[2], distance))
         
         # Writes each cutting plane.
         vertex_count = len(face.verts[:4])
         for i in range(vertex_count - 1, -1, -1):
-            a = face.verts[i]
-            b = face.verts[(i + 1) % vertex_count]
-            normal2 = normal.cross(a.co - b.co)
+            a = face.verts[i].co * matrix
+            b = face.verts[(i + 1) % vertex_count].co * matrix
+            normal2 = normal.cross(a - b)
             normal2.length = 1
-            distance = -a.co.x * normal2.x - a.co.y * normal2.y - a.co.z * normal2.z
-            fh.write(struct.pack("ffff", normal2[0], -normal2[2], normal2[1], distance / scale))
+            distance = -a.x * normal2.x - a.y * normal2.y - a.z * normal2.z
+            fh.write(struct.pack("ffff", normal2[0], normal2[1], normal2[2], distance))
             
         # Writes the rest of the cutting planes if the number of edges is lower than four.
         for i in range(4 - vertex_count):
             fh.write(struct.pack("ffff", 0, 0, 0, 0))
         
         # Writes bounding box.
-        verts = [revolt_fix(v.co, scale) for v in face.verts]
+        verts = [v.co * matrix for v in face.verts]
         min_point = [min([v.x for v in verts]), min([v.y for v in verts]), min([v.z for v in verts])]
         max_point = [max([v.x for v in verts]), max([v.y for v in verts]), max([v.z for v in verts])]
         fh.write(struct.pack("ffffff", min_point[0], max_point[0], min_point[1], max_point[1], min_point[2], max_point[2]))
         
     # Writes the lookup grid.
-    min_point = Vector([min([v.co.x for v in bm.verts]), min([v.co.y for v in bm.verts])])
-    max_point = Vector([max([v.co.x for v in bm.verts]), max([v.co.y for v in bm.verts])])
-    fh.write(struct.pack("fffff", min_point.x / scale, min_point.y / scale, 1, 1, max([max_point.x - min_point.x, max_point.y - min_point.y]) / scale))
+    x_coords = [(v.co * matrix).x for v in bm.verts]
+    z_coords = [(v.co * matrix).z for v in bm.verts]
+    fh.write(struct.pack("fffff", min(x_coords), min(z_coords), 1, 1, max([max(x_coords) - min(x_coords), max(z_coords) - min(z_coords)])))
+    
+    #min_point = Vector([min([v.co.x for v in bm.verts]), min([v.co.y for v in bm.verts])])
+    #max_point = Vector([max([v.co.x for v in bm.verts]), max([v.co.y for v in bm.verts])])
+    #fh.write(struct.pack("fffff", min_point.x / scale, min_point.y / scale, 1, 1, max([max_point.x - min_point.x, max_point.y - min_point.y]) / scale))
+    
     fh.write(struct.pack("l", len(bm.faces)))
     for i in range(len(bm.faces)):
         fh.write(struct.pack("l", i))
@@ -202,7 +215,7 @@ def export_hitbox(filepath, scale, mesh = None):
     bm.free()
 
 # Exports world objects. (FIN-file)
-def export_objects(filepath, scale, objects):
+def export_world_models(filepath, matrix, objects):
     fh = open(filepath, "wb")
     
     # Writes the number of objects.
@@ -212,9 +225,11 @@ def export_objects(filepath, scale, objects):
     for obj in objects:
         mesh_name = bpy.path.ensure_ext(obj.data.name, ".PRM").upper().replace(".", "\x00")[:8].ljust(8, "\x00")
         fh.write(bytes(mesh_name, "ASCII"))
-        location = revolt_fix(obj.location, scale)
-        matrix = revolt_fix(obj.matrix_local, 1)
-        fh.write(struct.pack("BBBLBBBBfffffffffffff", 0, 0, 0, 0, 0, 0, 0, 0, 0, location.x, location.y, location.z, matrix[0].x, matrix[1].x, matrix[2].x, matrix[0].y, matrix[1].y, matrix[2].y, matrix[0].z, matrix[1].z, matrix[2].z))
+        v1 = Vector((obj.matrix_local[0].x, obj.matrix_local[1].x, obj.matrix_local[2].x)) * matrix.normalized()
+        v2 = -Vector((obj.matrix_local[0].z, obj.matrix_local[1].z, obj.matrix_local[2].z)) * matrix.normalized()
+        v3 = Vector((obj.matrix_local[0].y, obj.matrix_local[1].y, obj.matrix_local[2].y)) * matrix.normalized()
+        location = obj.location * matrix
+        fh.write(struct.pack("BBBLBBBBfffffffffffff", 0, 0, 0, 0, 0, 0, 0, 0, 0, location.x, location.y, location.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z, v3.x, v3.y, v3.z))
         
     fh.close()
     
@@ -288,6 +303,20 @@ def export_convex_hull(filepath, scale, mesh = None):
     
     fh.close()
     bm.free()
+
+# Exports world objects. (FOB-file)
+def export_world_objects(filepath, matrix, objects):
+    object_types = {item[0] : i - 1 for i,item in enumerate(bpy.types.RevoltObjectProperties.object_type[1]["items"])}
+    
+    fh = open(filepath, "wb")
+    fh.write(struct.pack("l", len(objects)))
+    for obj in objects:
+        object_type = object_types[obj.revolt.object_type]
+        up = (-Vector((obj.matrix_local[0].z, obj.matrix_local[1].z, obj.matrix_local[2].z)) * matrix).normalized()
+        forward = (Vector((obj.matrix_local[0].y, obj.matrix_local[1].y, obj.matrix_local[2].y)) * matrix).normalized()
+        location = obj.location * matrix
+        fh.write(struct.pack("lllllfffffffff", object_type, obj.revolt.flag1_long, obj.revolt.flag2_long, obj.revolt.flag3_long, obj.revolt.flag4_long, location.x, location.y, location.z, up.x, up.y, up.z, forward.x, forward.y, forward.z))
+    fh.close()
 
 # This method converts a Blender coordinate to a Re-Volt coordinate. In Re-Volt the Y-axis is up and inverted. In Blender the Z-axis is up.
 def revolt_fix(input, scale = 1):

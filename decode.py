@@ -6,26 +6,29 @@ from mathutils import Vector, Matrix, Color, Euler
 from math import atan, pi
 
 # Decodes a mesh and add decoded faces and vertices to supplied bmesh.
-def decode_mesh(fh, bm, scale, texture = None):
+def decode_mesh(fh, bm, matrix, texture = None):
     # Split up path.
     path = re.split("[/\\\\]", fh.name)
+    is_world = os.path.splitext(fh.name)[1].upper() == ".W"
     
     # Gets/creates texture-, uv- and color layers.
     tex_lay = bm.faces.layers.tex.active or bm.faces.layers.tex.new("Texture")
     uv_lay = bm.loops.layers.uv.active or bm.loops.layers.uv.new("Uv")
     color_lay = bm.loops.layers.color.active or bm.loops.layers.color.new("Color")
     alpha_lay = bm.loops.layers.color.get("Alpha") or bm.loops.layers.color.new("Alpha")
+    type_lay = bm.faces.layers.int.get("revolt_face_type") or bm.faces.layers.int.new("revolt_face_type")
     
     # Read some data from the file
     polygon_count, vertex_count = struct.unpack("hh", fh.read(4))
     polygons = [struct.unpack("hhhhhhBBBBBBBBBBBBBBBBffffffff", fh.read(60)) for x in range(polygon_count)]
-    vertices = [bm.verts.new(revolt_fix(struct.unpack("ffffff", fh.read(24))[:3], scale)) for x in range(vertex_count)]
+    vertices = [bm.verts.new(Vector(struct.unpack("ffffff", fh.read(24))[:3]) * matrix) for x in range(vertex_count)]
     
     # Loops through each polygon
     for data in polygons:
         vertex_indices = data[2:(5 if data[0] % 2 == 0 else 6)]
         if len(vertex_indices) == len(set(vertex_indices)) and bm.faces.get([vertices[i] for i in vertex_indices]) == None:
             polygon = bm.faces.new([vertices[i] for i in vertex_indices])
+            polygon[type_lay] = data[0]
             
             if texture == None and data[1] >= 0:
                 texture_name = path[-2].lower() + chr(97 + data[1]) + ".bmp"
@@ -46,22 +49,44 @@ def decode_mesh(fh, bm, scale, texture = None):
             # The faces face the wrong way so the normal has to be flipped.
             polygon.normal_flip()
 
+# Imports a mesh. (PRM-/M-file)
+def get_mesh(filepath, matrix, texture_path = None):
+
+    # Returns None if the file doesn't exist or if its filesize is 0 byte.
+    if not os.path.isfile(filepath) or os.path.getsize(filepath) == 0:
+        return None
+    
+    name = os.path.basename(filepath)
+    
+    # Returns already created mesh if there is one.
+    if bpy.data.meshes.get(name):
+        return bpy.data.meshes[name]
+    
+    # Creates mesh and decodes file.
+    mesh = bpy.data.meshes.new(name)
+    fh = open(filepath, "rb")
+    bm = bmesh.new()
+    decode_mesh(fh, bm, matrix, texture_path)
+    fh.close()
+    bm.to_mesh(mesh)
+    return mesh
+
 # Imports a model. (PRM-/M-file)
-def import_model(filepath, scale, texture_path = None):
+def import_model(filepath, matrix, texture_path = None):
     # Returns None if the file doesn't exist or if its filesize is 0 byte.
     if not os.path.isfile(filepath) or os.path.getsize(filepath) == 0:
         return None
         
     fh = open(filepath, "rb")
     bm = bmesh.new()
-    decode_mesh(fh, bm, scale, texture_path)
+    decode_mesh(fh, bm, matrix, texture_path)
     fh.close()
     obj = bmesh_to_object(bm, os.path.basename(filepath))
     obj.data.revolt.export_as_prm = True
     return obj
 
 # Imports a level/world. (W-file)
-def import_world(filepath, scale, include_objects, include_hitboxes, hide_hitboxes):
+def import_world(filepath, matrix, include_models, include_objects, include_hitboxes, hide_hitboxes):
     # Exits if the file doesn't exist or if its filesize is 0 byte.
     if os.path.isfile(filepath) == False or os.path.getsize(filepath) == 0:
         return
@@ -71,28 +96,43 @@ def import_world(filepath, scale, include_objects, include_hitboxes, hide_hitbox
     fh = open(filepath, "rb")
     mesh_count = struct.unpack("l", fh.read(4))[0]
     bpy.context.scene.revolt_world.path = os.path.dirname(fh.name)
-    bpy.context.scene.revolt_world.scale = scale
+    bpy.context.scene.revolt_world.matrix = matrix
     
-    # Loops through each mesh
+    # Loops through each mesh.
     for i in range(mesh_count):
         fh.read(40)
-        decode_mesh(fh, bm, scale)
-        
+        decode_mesh(fh, bm, matrix)
+    
+    # Reads FunnyBalls and unknown list.
+    funnyball_count = struct.unpack("l", fh.read(4))[0]
+    for i in range(funnyball_count):
+        fh.read(16)
+        fh.read(4 * struct.unpack("l", fh.read(4))[0])
+    fh.read(4 * struct.unpack("l", fh.read(4))[0])
+    
+    # Reads the EnvList. This is where the color for each face with EnvMapping is stored.
+    envmapping_lay = bm.faces.layers.int.get("revolt_envmapping") or bm.faces.layers.int.new("revolt_envmapping")
+    envmapping_color_lay = bm.faces.layers.int.get("revolt_envmapping_color") or bm.faces.layers.int.new("revolt_envmapping_color")
+    
     # Closes file and create object form the bmesh.
     fh.close()
     world = bmesh_to_object(bm, os.path.basename(filepath))
     if world != None:
         world.data.revolt.export_as_w = True
     
-    # Import hitbox if include_hitboxes is True.
-    if include_hitboxes:
-        hitbox = import_hitbox(os.path.splitext(filepath)[0] + ".ncp", scale)
-        if hitbox != None:
-            hitbox.hide = hide_hitboxes
-    
     # Import objects if include_objects is True.
     if include_objects:
-        import_objects(os.path.splitext(filepath)[0] + ".fin", scale, include_hitboxes)
+        import_world_objects(os.path.splitext(filepath)[0] + ".fob", matrix)
+        
+    # Import objects if include_objects is True.
+    if include_models:
+        import_world_models(os.path.splitext(filepath)[0] + ".fin", matrix, include_hitboxes)
+        
+    # Import hitbox if include_hitboxes is True.
+    if include_hitboxes:
+        hitbox = import_hitbox(os.path.splitext(filepath)[0] + ".ncp", matrix)
+        if hitbox != None:
+            hitbox.hide = hide_hitboxes
     
     # Imports startpos and some other stuff.
     inf_path = os.path.splitext(filepath)[0] + ".inf"
@@ -100,8 +140,8 @@ def import_world(filepath, scale, include_objects, include_hitboxes, hide_hitbox
         fh = open(inf_path, "r")
         data = ParameterBlock(fh)
         bpy.context.scene.revolt_world.name = (data.get_parameter("NAME") or "  ")[1:-1]
-        bpy.context.scene.revolt_world.farclip = float(data.get_parameter("FARCLIP") or "0") * scale
-        bpy.context.scene.revolt_world.fogstart = float(data.get_parameter("FOGSTART") or "0") * scale
+        bpy.context.scene.revolt_world.farclip = float(data.get_parameter("FARCLIP") or "0") * min(matrix.to_scale())
+        bpy.context.scene.revolt_world.fogstart = float(data.get_parameter("FOGSTART") or "0") * min(matrix.to_scale())
         fogcolor = [float(x) / 255 for x in data.get_parameters("FOGCOLOR") or []]
         if len(fogcolor) == 3:
             bpy.context.scene.revolt_world.fogcolor = Color(fogcolor)
@@ -110,15 +150,15 @@ def import_world(filepath, scale, include_objects, include_hitboxes, hide_hitbox
         startpos = [float(x) for x in data.get_parameters("STARTPOS") or []]
         startrot = float(data.get_parameter("STARTROT") or "0")
         if len(startpos) == 3:
-            obj = add_revolt_startpos(bpy.context.scene.revolt_world.scale)
-            obj.location = revolt_fix(startpos, scale)
+            obj = add_revolt_startpos(matrix)
+            obj.location = Vector(startpos) * matrix
             obj.rotation_euler = Euler((0, 0, -startrot * pi * 2), "XYZ")
             bpy.context.scene.revolt_world.startpos_object = obj.name
         
         fh.close()
 
 # Imports a hitbox. (NCP-file)
-def import_hitbox(filepath, scale):
+def import_hitbox(filepath, matrix):
     # Returns None if the file doesn't exist or if its filesize is 0 byte.
     if not os.path.isfile(filepath) or os.path.getsize(filepath) == 0:
         return None
@@ -152,7 +192,7 @@ def import_hitbox(filepath, scale):
             determinant = Matrix([v[0], v[a], v[b]]).determinant()
             if determinant != 0:
                 pos = determinant**-1 * (-d[0] * v[a].cross(v[b]) + -d[a] * v[b].cross(v[0]) + -d[b] * v[0].cross(v[a]))
-                vert = bm.verts.new(revolt_fix(pos, scale))
+                vert = bm.verts.new(Vector(pos) * matrix)
                 vertices.insert(0, vert)
         
         # Creates a face if we've got 3 or more vertices.
@@ -166,8 +206,8 @@ def import_hitbox(filepath, scale):
     obj.data.revolt.export_as_ncp = True
     return obj
 
-# Imports world objects. (FIN-file)
-def import_objects(filepath, scale, include_hitboxes):
+# Imports world models. (FIN-file)
+def import_world_models(filepath, matrix, include_hitboxes):
     if os.path.isfile(filepath) == False or os.path.getsize(filepath) == 0:
         return
     
@@ -197,18 +237,19 @@ def import_objects(filepath, scale, include_hitboxes):
             # If the mesh hasn't been loaded, load it or else make an object using the existing mesh.
             mesh = bpy.data.meshes.get(mesh_name)
             if mesh == None:
-                obj = import_model(mesh_path, scale)
+                obj = import_model(mesh_path, matrix)
             else:
                 obj = bpy.data.objects.new(mesh_name, mesh)
                 bpy.context.scene.objects.link(obj)
             
-            # Reads the matrix. Let's call revolt_fix to fix the coordinates.
-            matrix = revolt_fix(Matrix(((data[21], data[24], data[27]), (data[22], data[25], data[28]), (data[23], data[26], data[29])))).to_4x4()
-            
             # If the object was created sucessfully. Set its matrix and location.
             if obj != None:
-                obj.matrix_local = matrix
-                obj.location = revolt_fix(data[18:21], scale)
+                v1 = Vector((data[21], data[24], data[27])) * matrix
+                v2 = Vector((data[22], data[25], data[28])) * matrix
+                v3 = Vector((data[23], data[26], data[29])) * matrix
+                obj.matrix_local = Matrix((v1, v3, -v2)).to_4x4()
+                obj.location = Vector(data[18:21]) * matrix
+                obj.scale = Vector((1,1,1))
                 
             # If we want to unclude hitboxes.
             if include_hitboxes:
@@ -217,21 +258,21 @@ def import_objects(filepath, scale, include_hitboxes):
                 
                 # If the hitbox mesh hasn't been loaded, load it or else make an object using the existing hitbox mesh.
                 if hitbox == None:
-                    obj = import_hitbox(path + hitbox_name, scale)
+                    hitbox_obj = import_hitbox(path + hitbox_name, matrix)
                 else:
-                    obj = bpy.data.objects.new(hitbox_name, hitbox)
-                    bpy.context.scene.objects.link(obj)
+                    hitbox_obj = bpy.data.objects.new(hitbox_name, hitbox)
+                    bpy.context.scene.objects.link(hitbox_obj)
                 
             # If the hitbox was created sucessfully. Hide it (because it's ugly!) and set its matrix + location.
-            if obj != None:
-                obj.hide = True
-                obj.matrix_local = matrix
-                obj.location = revolt_fix(data[18:21], scale)
+            if hitbox_obj != None:
+                hitbox_obj.hide = True
+                hitbox_obj.matrix_local = obj.matrix_local
+                hitbox_obj.location = Vector(data[18:21]) * matrix
             
     fh.close()
 
 # Imports a car. (Parameters.txt)
-def import_car(filepath, scale):
+def import_car(filepath, matrix):
     car_properties = bpy.context.scene.revolt_car
     fh = open(filepath, "r")
     
@@ -276,7 +317,7 @@ def import_car(filepath, scale):
                 wheel_obj = bpy.data.objects.new(model_name, bpy.data.meshes[model_name])
                 bpy.context.scene.objects.link(wheel_obj)
             else:
-                wheel_obj = import_model(model_path, scale, texture)
+                wheel_obj = import_model(model_path, matrix, texture)
             
             # If wheel was loaded successfully.
             if wheel_obj != None:
@@ -293,7 +334,7 @@ def import_car(filepath, scale):
                 # Sets the location.
                 location = wheel.get_parameters("Offset1")
                 if location != None and len(location) == 3:
-                    wheel_obj.location = revolt_fix([float(re.sub("[^0-9\.\+-]", "", x)) for x in location], scale)
+                    wheel_obj.location = Vector([float(re.sub("[^0-9\.\+-]", "", x)) for x in location]) * matrix
         
         # Gets the axle info.
         axle = data.blocks.get("AXLE " + str(i))
@@ -310,7 +351,7 @@ def import_car(filepath, scale):
                     axle_obj = bpy.data.objects.new(model_name, bpy.data.meshes[model_name])
                     bpy.context.scene.objects.link(axle_obj)
                 else:
-                    axle_obj = import_model(model_path, scale, texture)
+                    axle_obj = import_model(model_path, matrix, texture)
                 
                 # If axle was loaded successfully.
                 if axle_obj != None:
@@ -318,7 +359,7 @@ def import_car(filepath, scale):
                     # Sets the location.
                     location = axle.get_parameters("Offset")
                     if location != None and len(location) == 3:
-                        axle_obj.location = revolt_fix([float(re.sub("[^0-9\.\+-]", "", x)) for x in location], scale)
+                        axle_obj.location = Vector([float(re.sub("[^0-9\.\+-]", "", x)) for x in location]) * matrix
                     
                     # Set the axle to track the wheel.
                     track_constraint = axle_obj.constraints.new(type = "TRACK_TO")
@@ -345,7 +386,7 @@ def import_car(filepath, scale):
                     spring_obj = bpy.data.objects.new(model_name, bpy.data.meshes[model_name])
                     bpy.context.scene.objects.link(spring_obj)
                 else:
-                    spring_obj = import_model(model_path, scale, texture)
+                    spring_obj = import_model(model_path, matrix, texture)
                 
                 # If spring was loaded successfully.
                 if spring_obj != None:
@@ -353,7 +394,7 @@ def import_car(filepath, scale):
                     # Sets the location.
                     location = spring.get_parameters("Offset")
                     if location != None and len(location) == 3:
-                        spring_obj.location = revolt_fix([float(re.sub("[^0-9\.\+-]", "", x)) for x in location], scale)
+                        spring_obj.location = Vector([float(re.sub("[^0-9\.\+-]", "", x)) for x in location]) * matrix
                     
                     # Set the axle to track the wheel.
                     track_constraint = spring_obj.constraints.new(type = "TRACK_TO")
@@ -366,7 +407,7 @@ def import_car(filepath, scale):
     body = data.blocks.get("BODY")
     model_path = data.get_parameter("MODEL", body.get_parameter("ModelNum"))
     if body != None and model_path != None:
-        obj = import_model(revolt_path + model_path[1:-1], scale, texture)
+        obj = import_model(revolt_path + model_path[1:-1], matrix, texture)
         
         # If the body was loaded sucessfully.
         if obj != None:
@@ -375,7 +416,7 @@ def import_car(filepath, scale):
             # Sets the location.
             location = body.get_parameters("Offset")
             if location != None and len(location) == 3:
-                obj.location = revolt_fix([float(re.sub("[^0-9\.]", "", x)) for x in location], scale)
+                obj.location = Vector([float(re.sub("[^0-9\.]", "", x)) for x in location]) * matrix
     
     fh.close()
 
@@ -416,59 +457,123 @@ class ParameterBlock:
         matches = [p for p in self.params if len(p) > len(keys) and all([p[i] == k for i, k in enumerate(keys)])]
         return matches[0][len(keys)] if len(matches) > 0 else None
 
-# Imports a convex hull. (HUL-file)
-def import_convex_hull(filepath, scale):
+# Imports world objects. (FOB-file)
+def import_world_objects(filepath, matrix):
+    
     # Returns None if the file doesn't exist or if its filesize is 0 byte.
     if not os.path.isfile(filepath) or os.path.getsize(filepath) == 0:
         return None
+    
+    # Model paths for planets.
+    planet_models = [
+        "models\\mercury.m",
+        "models\\venus.m",
+        "models\\earth.m",
+        "models\\mars.m",
+        "models\\jupiter.m",
+        "models\\saturn.m",
+        "models\\uranus.m",
+        "models\\neptune.m",
+        "models\\pluto.m",
+        "models\\moon.m",
+        "models\\rings.m"
+        ]
         
-    # Opens file and creates bmesh.
+    revolt_path = "\\".join(re.split("[/\\\\]", filepath)[:-3]) + "\\"
+    object_types = [item[0] for item in bpy.types.RevoltObjectProperties.object_type[1]["items"]]
+    
     fh = open(filepath, "rb")
-    bm = bmesh.new()
-    
-    # Reads number of convex hulls.
-    chull_count = struct.unpack("h", fh.read(2))[0]
-    
-    # Loops through each convex hull.
-    for i in range(chull_count):
-        vertex_count, edge_count, face_count = struct.unpack("hhh", fh.read(6))
-        fh.read(36)
-        
-        # Loops through each vertex.
-        for n in range(vertex_count):
-            co = struct.unpack("fff", fh.read(12))
-            bm.verts.new(revolt_fix(co, scale))
-        
-        bm.verts.ensure_lookup_table()
-        
-        # Loops through each edge.
-        for n in range(edge_count):
-            verts = [bm.verts[x] for x in struct.unpack("hh", fh.read(4))]
-            if bm.edges.get(verts) == None:
-                bm.edges.new(verts)
-        
-        # Loops through each face.
-        for n in range(face_count):
-            fh.read(16)
-        
-        sphere_count = struct.unpack("h", fh.read(2))[0]
-        
-        # Loops through each sphere.
-        for n in range(sphere_count):
-            sphere = struct.unpack("ffff", fh.read(16))
-            location = revolt_fix(sphere[:3], scale)
-            radius = sphere[-1] * scale
-            bpy.ops.mesh.primitive_uv_sphere_add(location = location, size = radius)
-    
+    object_count = struct.unpack("l", fh.read(4))[0]
+    for i in range(object_count):
+        data = struct.unpack("lllllfffffffff", fh.read(56))
+        if data[0] + 1 < len(object_types):
+            up = (-Vector(data[8:11]) * matrix).normalized()
+            forward = (Vector((data[11:14])) * matrix).normalized()
+            right = forward.cross(up)
+            obj_matrix = Matrix(((right.x, forward.x, up.x), (right.y, forward.y, up.y), (right.z, forward.z, up.z))).to_4x4()
+            object_type = object_types[data[0] + 1]
+            
+            mesh = None
+            
+            if object_type == "OBJECT_TYPE_BARREL":
+                mesh = get_mesh(revolt_path + "models\\barrel.m", matrix)
+            
+            elif object_type == "OBJECT_TYPE_FOOTBALL":
+                mesh = get_mesh(revolt_path + "models\\football.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_BEACHBALL":
+                mesh = get_mesh(revolt_path + "models\\beachball.m", matrix)
+            
+            elif object_type == "OBJECT_TYPE_PLANET" and data[1] != 11:
+                mesh = get_mesh(revolt_path + planet_models[data[1]], matrix)
+
+            elif object_type == "OBJECT_TYPE_PLANE":
+                mesh = get_mesh(revolt_path + "models\\plane.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_COPTER":
+                mesh = get_mesh(revolt_path + "models\\copter.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_DRAGON":
+                mesh = get_mesh(revolt_path + "models\\dragon1.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_WATER":
+                mesh = get_mesh(revolt_path + "models\\water.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_TROLLEY":
+                mesh = get_mesh(revolt_path + "models\\trolley.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_BOAT":
+                mesh = get_mesh(revolt_path + "models\\boat1.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_RADAR":
+                mesh = get_mesh(revolt_path + "models\\radar.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_SPEEDUP":
+                mesh = get_mesh(revolt_path + "models\\speedup.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_BALOON":
+                mesh = get_mesh(revolt_path + "models\\baloon.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_HORSE":
+                mesh = get_mesh(revolt_path + "models\\horse.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_TRAIN":
+                mesh = get_mesh(revolt_path + "models\\train.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_STROBE":
+                mesh = get_mesh(revolt_path + "models\\light1.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_SPACEMAN":
+                mesh = get_mesh(revolt_path + "models\\spaceman.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_PICKUP":
+                mesh = get_mesh(revolt_path + "models\\pickup.m", matrix)
+                
+            elif object_type == "OBJECT_TYPE_FLAP":
+                mesh = get_mesh(revolt_path + "models\\flap.m", matrix)
+                
+            obj = bpy.data.objects.new(object_type, mesh)
+            obj.empty_draw_type = "ARROWS"
+            obj.matrix_local = obj_matrix
+            obj.location = Vector(data[5:8]) * matrix
+            obj.revolt.type = "OBJECT"
+            obj.revolt.object_type = object_type
+            obj.revolt.flag1_long = data[1]
+            obj.revolt.flag2_long = data[2]
+            obj.revolt.flag3_long = data[3]
+            obj.revolt.flag4_long = data[4]
+            bpy.context.scene.objects.link(obj)
+            
     fh.close()
-    return bmesh_to_object(bm, os.path.basename(filepath))
 
 # Creates a Re-Volt start position used in levels.
-def add_revolt_startpos(scale):
+def add_revolt_startpos(matrix):
     bm = bmesh.new()
     grid = [[-200, 0], [200, 0], [-200, -320], [200, -320], [-200, -640], [200, -640], [-200, -960], [200, -960]]
+    mat = matrix.copy()
+    mat.invert()
     for pos in grid:
-        bmesh.ops.create_cube(bm, matrix = Matrix(((60 * scale, 0, 0, pos[0] * scale), (0, 110 * scale, 0, pos[1] * scale), (0, 0, 30 * scale, 15 * scale), (0, 0, 0, 1))))
+        bmesh.ops.create_cube(bm, matrix = Matrix(((60, 0, 0, pos[0]), (0, 0, 110, pos[1]), (0, -30, 0, 15), (0, 0, 0, 1))) * matrix)
     return bmesh_to_object(bm, "Startpos")
 
 # Creates a new object from supplied bmesh and links it to the current scene.
@@ -487,14 +592,3 @@ def filepath_fix(filepath):
     path, ext = os.path.splitext(filepath)
     found_files = glob.glob(path + "*" + ext)
     return found_files[0] if len(found_files) > 0 else None
-
-# Rescales any kind of input to the supplied scale. This method also fixes the axes. (In Re-Volt the Y-axis is up and inverted. In Blender the Z-axis is up.)
-def revolt_fix(input, scale = 1):
-    t = type(input)
-    if t in (Vector, list, tuple) and len(input) == 3:
-        return Vector((input[0], input[2], -input[1])) * scale
-    if t in (float, int):
-        return input * scale
-    if t is Matrix and len(input) >= 3:
-        return Matrix(((input[0][0], input[0][2], -input[0][1]), (input[2][0], input[2][2], -input[2][1]), (-input[1][0], -input[1][2], input[1][1])))
-        
