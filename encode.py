@@ -31,8 +31,13 @@ def encode_mesh(fh, bm, matrix, include_textures, faces = None, verts = None):
         else:
             texture = 0
         
+
+        # Sets the polygon's bit-field
+        is_quad = 1 if len(face.verts) > 3 else 1
+        type = face[type_lay] & ~1 + is_quad
+
+
         # Writes type and texture.
-        type = face[type_lay] & ~1 + len(face.verts) > 3
         fh.write(struct.pack("hh", type, texture))
         looping = [2, 1, 0, 3] if len(face.verts) < 4 else [3, 2, 1, 0]
         
