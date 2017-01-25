@@ -19,9 +19,9 @@ def decode_mesh(fh, bm, matrix, texture = None):
     type_lay = bm.faces.layers.int.get("revolt_face_type") or bm.faces.layers.int.new("revolt_face_type")
     
     # Read some data from the file
-    polygon_count, vertex_count = struct.unpack("hh", fh.read(4))
-    polygons = [struct.unpack("hhhhhhBBBBBBBBBBBBBBBBffffffff", fh.read(60)) for x in range(polygon_count)]
-    vertices = [bm.verts.new(Vector(struct.unpack("ffffff", fh.read(24))[:3]) * matrix) for x in range(vertex_count)]
+    polygon_count, vertex_count = struct.unpack("=hh", fh.read(4))
+    polygons = [struct.unpack("=hhhhhhBBBBBBBBBBBBBBBBffffffff", fh.read(60)) for x in range(polygon_count)]
+    vertices = [bm.verts.new(Vector(struct.unpack("=ffffff", fh.read(24))[:3]) * matrix) for x in range(vertex_count)]
     
     # Loops through each polygon
     for data in polygons:
@@ -94,7 +94,7 @@ def import_world(filepath, matrix, include_models, include_objects, include_hitb
     # Creates bmesh, opens the file and reads the number of meshes in the file
     bm = bmesh.new()
     fh = open(filepath, "rb")
-    mesh_count = struct.unpack("l", fh.read(4))[0]
+    mesh_count = struct.unpack("=l", fh.read(4))[0]
     bpy.context.scene.revolt_world.path = os.path.dirname(fh.name)
     bpy.context.scene.revolt_world.matrix = matrix
     
@@ -104,11 +104,11 @@ def import_world(filepath, matrix, include_models, include_objects, include_hitb
         decode_mesh(fh, bm, matrix)
     
     # Reads FunnyBalls and unknown list.
-    funnyball_count = struct.unpack("l", fh.read(4))[0]
+    funnyball_count = struct.unpack("=l", fh.read(4))[0]
     for i in range(funnyball_count):
         fh.read(16)
-        fh.read(4 * struct.unpack("l", fh.read(4))[0])
-    fh.read(4 * struct.unpack("l", fh.read(4))[0])
+        fh.read(4 * struct.unpack("=l", fh.read(4))[0])
+    fh.read(4 * struct.unpack("=l", fh.read(4))[0])
     
     # Reads the EnvList. This is where the color for each face with EnvMapping is stored.
     envmapping_lay = bm.faces.layers.int.get("revolt_envmapping") or bm.faces.layers.int.new("revolt_envmapping")
@@ -166,16 +166,16 @@ def import_hitbox(filepath, matrix):
     # Creates bmesh, opens file and reads the number of polyhedrons.
     bm = bmesh.new()
     fh = open(filepath, "rb")
-    polyhedron_count = struct.unpack("h", fh.read(2))[0]
+    polyhedron_count = struct.unpack("=h", fh.read(2))[0]
     material_layer = bm.faces.layers.int.new("revolt_material")
     
     # Loops through each polyhedron.
     for i in range(polyhedron_count):
-        type, surface = struct.unpack("ll", fh.read(8))
+        type, surface = struct.unpack("=ll", fh.read(8))
 
         # Read some data.
-        plane_data = [struct.unpack("ffff", fh.read(16)) for n in range(5)]
-        bbox = struct.unpack("ffffff", fh.read(24))
+        plane_data = [struct.unpack("=ffff", fh.read(16)) for n in range(5)]
+        bbox = struct.unpack("=ffffff", fh.read(24))
         v = [Vector(plane[0:3]) for plane in plane_data]
         d = [plane[3] for plane in plane_data]
         
@@ -214,13 +214,13 @@ def import_world_models(filepath, matrix, include_hitboxes):
     # Opens file, splits the path and reads the number of objects.
     fh = open(filepath, "rb")
     path = "\\".join(re.split("[/\\\\]", fh.name)[:-1]) + "\\"
-    object_count = struct.unpack("l", fh.read(4))[0]
+    object_count = struct.unpack("=l", fh.read(4))[0]
     
     # Loops through each object.
     for i in range(object_count):
         
         # Reads som data.
-        data = struct.unpack("ccccccccccccLccccfffffffffffff", fh.read(72))
+        data = struct.unpack("=ccccccccccccLccccfffffffffffff", fh.read(72))
         mesh_name = "".join([x.decode("ASCII") for x in data[:9]]).split("\x00")[0]
         
         # The path is incomplete sometimes due to limitations in the FIN-file format. Let's fix this!
@@ -483,9 +483,9 @@ def import_world_objects(filepath, matrix):
     object_types = [item[0] for item in bpy.types.RevoltObjectProperties.object_type[1]["items"]]
     
     fh = open(filepath, "rb")
-    object_count = struct.unpack("l", fh.read(4))[0]
+    object_count = struct.unpack("=l", fh.read(4))[0]
     for i in range(object_count):
-        data = struct.unpack("lllllfffffffff", fh.read(56))
+        data = struct.unpack("=lllllfffffffff", fh.read(56))
         if data[0] + 1 < len(object_types):
             up = (-Vector(data[8:11]) * matrix).normalized()
             forward = (Vector((data[11:14])) * matrix).normalized()
