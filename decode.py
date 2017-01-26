@@ -8,7 +8,7 @@ from math import atan, pi
 # Decodes a mesh and add decoded faces and vertices to supplied bmesh.
 def decode_mesh(fh, bm, matrix, texture = None):
     # Split up path.
-    path = re.split("[/\\\\]", fh.name)
+    path = fh.name.split(os.sep)
     is_world = os.path.splitext(fh.name)[1].upper() == ".W"
     
     # Gets/creates texture-, uv- and color layers.
@@ -32,7 +32,7 @@ def decode_mesh(fh, bm, matrix, texture = None):
             
             if texture == None and data[1] >= 0:
                 texture_name = path[-2].lower() + chr(97 + data[1]) + ".bmp"
-                texture_path = "\\".join(path[:-1]) + "\\" + texture_name
+                texture_path = os.sep.join(path[:-1]) + os.sep + texture_name
                 
                 image = bpy.data.images.get(texture_name)
                 if image == None and os.path.isfile(texture_path):
@@ -124,7 +124,7 @@ def import_world(filepath, matrix, include_models, include_objects, include_hitb
     if include_objects:
         import_world_objects(os.path.splitext(filepath)[0] + ".fob", matrix)
         
-    # Import objects if include_objects is True.
+    # Import models if include_models is True.
     if include_models:
         import_world_models(os.path.splitext(filepath)[0] + ".fin", matrix, include_hitboxes)
         
@@ -213,15 +213,17 @@ def import_world_models(filepath, matrix, include_hitboxes):
     
     # Opens file, splits the path and reads the number of objects.
     fh = open(filepath, "rb")
-    path = "\\".join(re.split("[/\\\\]", fh.name)[:-1]) + "\\"
+    path = os.sep.join(fh.name.split(os.sep)[:-1]) + os.sep
     object_count = struct.unpack("=l", fh.read(4))[0]
     
     # Loops through each object.
     for i in range(object_count):
         
-        # Reads som data.
+        # Reads some data.
         data = struct.unpack("=ccccccccccccLccccfffffffffffff", fh.read(72))
-        mesh_name = "".join([x.decode("ASCII") for x in data[:9]]).split("\x00")[0]
+
+        # Decode the mesh name. For now expecing lowercase since it's the std for RVGL on Linux
+        mesh_name = "".join([x.decode("ASCII").lower() for x in data[:9]]).split("\x00")[0]
         
         # The path is incomplete sometimes due to limitations in the FIN-file format. Let's fix this!
         if os.path.isfile(path + mesh_name + ".prm"):
@@ -277,8 +279,8 @@ def import_car(filepath, matrix):
     fh = open(filepath, "r")
     
     # Split up path.
-    path = re.split("[/\\\\]", fh.name)
-    revolt_path = "\\".join(path[:-3]) + "\\"
+    path = fh.name.split(os.sep)
+    revolt_path = os.sep.join(path[:-3]) + os.sep
     
     # Loops through each line until the first "{" is found.
     for line in fh:
@@ -289,7 +291,7 @@ def import_car(filepath, matrix):
     data = ParameterBlock(fh)
     
     # Sets some parameters.
-    car_properties.path = "\\".join(path[:-1]) + "\\"
+    car_properties.path = os.sep.join(path[:-1]) + os.sep
     car_properties.name = (data.get_parameter("Name") or "  ")[1:-1]
     car_properties.engine_class = data.get_parameter("Class") or "0"
     car_properties.steer_rate = float(data.get_parameter("SteerRate") or "0")
@@ -466,20 +468,20 @@ def import_world_objects(filepath, matrix):
     
     # Model paths for planets.
     planet_models = [
-        "models\\mercury.m",
-        "models\\venus.m",
-        "models\\earth.m",
-        "models\\mars.m",
-        "models\\jupiter.m",
-        "models\\saturn.m",
-        "models\\uranus.m",
-        "models\\neptune.m",
-        "models\\pluto.m",
-        "models\\moon.m",
-        "models\\rings.m"
+        "models" + os.sep + "mercury.m",
+        "models" + os.sep + "venus.m",
+        "models" + os.sep + "earth.m",
+        "models" + os.sep + "mars.m",
+        "models" + os.sep + "jupiter.m",
+        "models" + os.sep + "saturn.m",
+        "models" + os.sep + "uranus.m",
+        "models" + os.sep + "neptune.m",
+        "models" + os.sep + "pluto.m",
+        "models" + os.sep + "moon.m",
+        "models" + os.sep + "rings.m"
         ]
         
-    revolt_path = "\\".join(re.split("[/\\\\]", filepath)[:-3]) + "\\"
+    revolt_path = os.sep.join(filepath.split(os.sep)[:-3]) + os.sep
     object_types = [item[0] for item in bpy.types.RevoltObjectProperties.object_type[1]["items"]]
     
     fh = open(filepath, "rb")
@@ -496,61 +498,61 @@ def import_world_objects(filepath, matrix):
             mesh = None
             
             if object_type == "OBJECT_TYPE_BARREL":
-                mesh = get_mesh(revolt_path + "models\\barrel.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "barrel.m", matrix)
             
             elif object_type == "OBJECT_TYPE_FOOTBALL":
-                mesh = get_mesh(revolt_path + "models\\football.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "football.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_BEACHBALL":
-                mesh = get_mesh(revolt_path + "models\\beachball.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "beachball.m", matrix)
             
             elif object_type == "OBJECT_TYPE_PLANET" and data[1] != 11:
                 mesh = get_mesh(revolt_path + planet_models[data[1]], matrix)
 
             elif object_type == "OBJECT_TYPE_PLANE":
-                mesh = get_mesh(revolt_path + "models\\plane.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "plane.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_COPTER":
-                mesh = get_mesh(revolt_path + "models\\copter.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "copter.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_DRAGON":
-                mesh = get_mesh(revolt_path + "models\\dragon1.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "dragon1.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_WATER":
-                mesh = get_mesh(revolt_path + "models\\water.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "water.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_TROLLEY":
-                mesh = get_mesh(revolt_path + "models\\trolley.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "trolley.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_BOAT":
-                mesh = get_mesh(revolt_path + "models\\boat1.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "boat1.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_RADAR":
-                mesh = get_mesh(revolt_path + "models\\radar.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "radar.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_SPEEDUP":
-                mesh = get_mesh(revolt_path + "models\\speedup.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "speedup.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_BALOON":
-                mesh = get_mesh(revolt_path + "models\\baloon.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "baloon.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_HORSE":
-                mesh = get_mesh(revolt_path + "models\\horse.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "horse.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_TRAIN":
-                mesh = get_mesh(revolt_path + "models\\train.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "train.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_STROBE":
-                mesh = get_mesh(revolt_path + "models\\light1.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "light1.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_SPACEMAN":
-                mesh = get_mesh(revolt_path + "models\\spaceman.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "spaceman.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_PICKUP":
-                mesh = get_mesh(revolt_path + "models\\pickup.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "pickup.m", matrix)
                 
             elif object_type == "OBJECT_TYPE_FLAP":
-                mesh = get_mesh(revolt_path + "models\\flap.m", matrix)
+                mesh = get_mesh(revolt_path + "models" + os.sep + "flap.m", matrix)
                 
             obj = bpy.data.objects.new(object_type, mesh)
             obj.empty_draw_type = "ARROWS"
