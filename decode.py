@@ -342,12 +342,12 @@ def import_car(filepath, matrix):
         axle = data.blocks.get("AXLE " + str(i))
         if axle != None:
             model_path = data.get_parameter("MODEL", axle.get_parameter("ModelNum"))
-            
+
             # If the model path is defined.
             if model_path != None:
                 model_path = revolt_path + model_path[1:-1]
                 model_name = os.path.basename(model_path)
-                
+
                 # If a mesh with the same name is already loaded, then use it or else import the mesh.
                 if bpy.data.meshes.get(model_name) != None:
                     axle_obj = bpy.data.objects.new(model_name, bpy.data.meshes[model_name])
@@ -447,7 +447,9 @@ class ParameterBlock:
             
             # Parameters are split by one or more spaces.
             params = re.findall("(['\\\"].+['\\\"]|[^\s]+)", line)
-            self.params.append(params)
+
+            # Also make all paths lowercase and replace \ with the local separator
+            self.params.append([param.lower().replace('\\', os.sep) for param in params])
             
     # Supply the params that you know and this method will return the rest. For example, to get the offset use block.get_value("OFFSET")
     def get_parameters(self, *keys):
