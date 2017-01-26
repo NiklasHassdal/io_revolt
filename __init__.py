@@ -371,10 +371,10 @@ object_types = [
     ]
 
 def get_flag_long(self, start):
-    return struct.unpack("l", bytes(self.flags[start:start + 4]))[0]
+    return struct.unpack("=l", bytes(self.flags[start:start + 4]))[0]
 
 def set_flag_long(self, value, start):
-    for i,b in enumerate(struct.pack("l", value), start):
+    for i,b in enumerate(struct.pack("=l", value), start):
         self.flags[i] = b
 
 def get_first_node(self):

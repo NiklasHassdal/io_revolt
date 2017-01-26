@@ -43,7 +43,7 @@ def decode_mesh(fh, bm, matrix, texture = None):
             
             for i in range(len(polygon.loops)):
                 polygon.loops[i][uv_lay].uv = [data[22 + i * 2], 1 - data[23 + i * 2]]
-                polygon.loops[i][color_lay] = Color([x / 255 for x in data[6 + i * 4:9 + i * 4]])
+                polygon.loops[i][color_lay] = Color(reversed([x / 255 for x in data[6 + i * 4:9 + i * 4]]))
                 polygon.loops[i][alpha_lay] = Color([1 - (data[9 + i * 4]  / 255)] * 3)
             
             # The faces face the wrong way so the normal has to be flipped.
