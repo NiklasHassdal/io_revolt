@@ -11,7 +11,6 @@ Blender plugin for importing and exporting cars, tracks and 3D models of the gam
 
 ### Export
 + **.prm/.m**
-+ **.w**: Not stable yet
 + **.ncp**: Collision files of tracks and instances
 + **.hul**
 
