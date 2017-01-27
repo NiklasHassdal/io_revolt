@@ -10,7 +10,7 @@ struct PRM_Mesh {
 struct World {
 
   rvlong       mesh_count;
-  Mesh         mesh[mesh_count];
+  Mesh         meshes[mesh_count];
   
   rvlong       bigcube_count;
   BigCube      bcube[bigcube_count];
@@ -19,6 +19,20 @@ struct World {
   TexAnimation anim[animation_count]
 
   EnvList   env_list;
+};
+
+struct Mesh {
+    
+  Vector       bound_ball_center;
+  rvfloat      bound_ball_radius;
+
+  BoundingBox  bbox;
+
+  rvshort      polygon_count;
+  rvshort      vertex_count;
+
+  Polygon      polygons[polygon_count];
+  Vertex       vertices[vertex_count];
 };
 
 struct TexAnimation {

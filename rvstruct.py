@@ -25,21 +25,23 @@ class World:
         
 
     def __str__(self):
-        return ("Mesh count: {}\n"
+        return ("====   WORLD   ====\n"
+                "Mesh count: {}\n"
                 "Meshes:\n{}\n"
-               ).format(self.mesh_count, *[str(mesh) for mesh in self.meshes])
+                "==== WORLD END ====\n"
+               ).format(self.mesh_count, '\n'.join([str(mesh) for mesh in self.meshes]))
 
 # Meshes found in .w files
 class Mesh:
     def __init__(self, fh = None):
 
         self.bound_ball_center = None
-        self.bound_ball_radius = 0
+        self.bound_ball_radius = None
 
         self.bbox = None
 
-        self.polygon_count = 0
-        self.vertex_count = 0
+        self.polygon_count = None
+        self.vertex_count = None
 
         self.polygons = []
         self.vertices = []
@@ -52,14 +54,19 @@ class Mesh:
         self.bound_ball_center = Vector(fh)
         self.bound_ball_radius = struct.unpack("=f", fh.read(4))[0]
         self.bbox = BoundingBox(fh)
+        self.polygon_count = struct.unpack("=h", fh.read(2))[0]
 
     def __str__(self):
-        return ("Bounding Ball Center: {}\n"
+        return ("====   MESH   ====\n"
+                "Bounding Ball Center: {}\n"
                 "Bounding Ball Radius: {}\n"
-                "Bounding Box:\n{}"
+                "Bounding Box:\n{}\n"
+                "Polygon Count: {}\n"
+                "==== MESH END ====\n"
                ).format(self.bound_ball_center,
                         self.bound_ball_radius,
-                        self.bbox)
+                        self.bbox,
+                        self.polygon_count)
 
 class BoundingBox:
 
@@ -114,7 +121,7 @@ class Vector:
 
 testw = World()
 
-fh = open("/home/yethiel/test.w", "rb")
+fh = open("/home/yethiel/Applications/RVGL/levels/frontend/frontend.w", "rb")
 testw.read(fh)
 print(testw)
 
