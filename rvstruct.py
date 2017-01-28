@@ -1,61 +1,102 @@
 import struct
 
+
 class World:
-    def __init__(self):
+    """
+    Reads a .w file and stores all sub-structures
+    All contained objects are of a similar structure.
+    """
+    def __init__(self, fh=None):
 
-        self.mesh_count = 0
-        self.meshes = []
+        self.mesh_count = 0             # rvlong, amount of Mesh objects
+        self.meshes = []                # sequence of Mesh structures
 
-        self.bigcube_count = 0
-        self.bigcubes = []
+        self.bigcube_count = 0          # rvlong, amount of BigCubes
+        self.bigcubes = []              # sequence of BigCubes
 
-        self.animation_count = 0
-        self.animations = []
+        self.animation_count = 0        # rvlong, amount of Texture Animations
+        self.animations = []            # sequence of TexAnimation structures
 
-        self.env_list = None
+        self.env_list = None            # an EnvList structure
+
+        # if an opened file is supplied, immediately start reading it
+        if fh:
+            self.read(fh)
 
     def read(self, fh):
 
-        # Read the mesh count (one rvlong)
-        self.mesh_count = struct.unpack("=l", fh.read(4))[0]
+        # Reads the mesh count (one rvlong)
+        self.mesh_count = struct.unpack("<l", fh.read(4))[0]
 
-        # Read the meshes
+        # Reads the meshes
         for mesh in range(self.mesh_count):
             self.meshes.append(Mesh(fh))
-        
 
+        # Reads the amount of bigcubes
+        self.bigcube_count = struct.unpack("<l", fh.read(4))[0]
+
+        # Reads all BigCubes
+        for bcube in range(self.bigcube_count):
+            self.bigcubes.append(BigCube(fh))
+
+        # Reads texture animation count
+        self.animation_count = struct.unpack("<l", fh.read(4))[0]
+
+        # Reads all animations
+        for anim in range(self.animation_count):
+            self.animations.append(TexAnimation(fh))
+        
+    # Uses the to-string for dumping the whole .w structure
     def __str__(self):
         return ("====   WORLD   ====\n"
                 "Mesh count: {}\n"
                 "Meshes:\n{}\n"
+                "BigCube count: {}\n"
+                "BigCubes:\n{}\n"
+                "Animation Count: {}\n"
+                "Animations:\n{}\n"
                 "==== WORLD END ====\n"
-               ).format(self.mesh_count, '\n'.join([str(mesh) for mesh in self.meshes]))
+               ).format(self.mesh_count, 
+               '\n'.join([str(mesh) for mesh in self.meshes]),
+               self.bigcube_count,
+               '\n'.join([str(bcube) for bcube in self.bigcubes]),
+               self.animation_count,
+               '\n'.join([str(anim) for anim in self.animations]))
 
-# Meshes found in .w files
+
 class Mesh:
+    """
+    Reads the Meshes found in .w files from an opened file
+    These are different from PRM meshes since they also contain
+    bounding boxes.
+    """
     def __init__(self, fh=None):
 
-        self.bound_ball_center = None
-        self.bound_ball_radius = None
+        self.bound_ball_center = None   # Vector
+        self.bound_ball_radius = None   # Vector
 
-        self.bbox = None
+        self.bbox = None                # BoundingBox
 
-        self.polygon_count = None
-        self.vertex_count = None
+        self.polygon_count = None       # rvlong
+        self.vertex_count = None        # rvlong
 
-        self.polygons = []
-        self.vertices = []
+        self.polygons = []              # Sequence of Polygon objects
+        self.vertices = []              # Sequence of Vertex objects
 
         if fh:
             self.read(fh)
 
     def read(self, fh):
         
-        self.bound_ball_center = struct.unpack("=fff", fh.read(12))
-        self.bound_ball_radius = struct.unpack("=f", fh.read(4))[0]
+        # Reads bounding "ball" center and the radius
+        self.bound_ball_center = struct.unpack("<d", fh.read(12))
+        self.bound_ball_radius = struct.unpack("<f", fh.read(4))[0]
+
         self.bbox = BoundingBox(fh)
-        self.polygon_count = struct.unpack("=h", fh.read(2))[0]
-        self.vertex_count = struct.unpack("=h", fh.read(2))[0]
+
+        # Reads amount of polygons/vertices and the structures themselves
+        self.polygon_count = struct.unpack("<h", fh.read(2))[0]
+        self.vertex_count = struct.unpack("<h", fh.read(2))[0]
 
         for polygon in range(self.polygon_count):
             self.polygons.append(Polygon(fh))
@@ -82,11 +123,12 @@ class Mesh:
                         '\n'.join([str(vertex) for vertex in self.vertices]))
 
 class BoundingBox:
-
-    bformat = "=ffffff"
-    bsize = 24
-
+    """
+    Reads and stores bounding boxes found in .w meshes
+    They are probably used for culling optimization, similar to BigCube
+    """
     def __init__(self, fh=None):
+        # Lower and higher boundaries for each axis
         self.xlo = 0
         self.xhi = 0
         self.ylo = 0
@@ -98,9 +140,10 @@ class BoundingBox:
             self.read(fh)
 
     def read(self, fh):
-
-        # Read 6 rvfloats
-        self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = struct.unpack(BoundingBox.bformat, fh.read(BoundingBox.bsize))
+        # Reads boundaries
+        self.xlo, self.xhi = struct.unpack("<d", fh.read(8))
+        self.ylo, self.yhi = struct.unpack("<d", fh.read(8))
+        self.zlo, self.zhi = struct.unpack("<d", fh.read(8))
 
     def __str__(self):
         return (
@@ -110,47 +153,60 @@ class BoundingBox:
                 "yhi {}\n"
                 "zlo {}\n"
                 "zhi {}\n"
-               ).format(self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi)
+               ).format(self.xlo, self.xhi, self.ylo, 
+                        self.yhi, self.zlo, self.zhi)
+
+    def __iter__(self):
+        return [self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi]
 
 class Vector:
-
+    """
+    A very simple vector class
+    """
     def __init__(self, fh=None, x=0, y=0, z=0):
-        self.x = x
-        self.y = y
-        self.z = z
+        self.x = x    # rvfloat
+        self.y = y    # rvfloat
+        self.z = z    # rvfloat
 
         if fh:
             self.read(fh)
 
     def read(self, fh):
-        # read rvfloats
-        vec = struct.unpack("=fff", fh.read(12))
+        # Reads the coordinates
+        vec = struct.unpack("<d", fh.read(12))
         self.x, self.y, self.z = vec
+
+    def __iter__(self):
+        return (x, y, z)
+
 
     def __str__(self):
         return "({}, {}, {})".format(self.x, self.y, self.z)
 
 class Polygon:
+    """
+    Reads a Polygon structure and stores it
+    """
     def __init__(self, fh=None):
+        self.type = None            # rvshort
+        self.texture = None         # rvshort
 
-        self.type = None    # rvshort
-        self.texture = None # rvshort
+        self.vertex_indices = []    # 4 rvshorts
+        self.colors = []            # 4 unsigned rvlongs
 
-        self.vertex_indices = [] # 4 rvshorts
-        self.colors = []    # 4 unsigned rvlongs
-
-        self.uv = []
+        self.uv = []                # UV structures
 
         if fh:
             self.read(fh)
 
     def read(self, fh):
-        
-        self.type = struct.unpack("=h", fh.read(2))
-        self.texture = struct.unpack("=h", fh.read(2))
+        # Reads the type bitfield and the texture index
+        self.type = struct.unpack("<h", fh.read(2))[0]
+        self.texture = struct.unpack("<h", fh.read(2))[0]
 
-        self.vertex_indices = struct.unpack("=hhhh", fh.read(8))
-        self.colors = struct.unpack("=LLLL", fh.read(16))
+        # Reads indices of the polygon's vertices and their vertex colors
+        self.vertex_indices = struct.unpack("<hhhh", fh.read(8))
+        self.colors = struct.unpack("<LLLL", fh.read(16))
 
         for x in range(4):
             self.uv.append(UV(fh))
@@ -171,19 +227,20 @@ class Polygon:
 
 
 class Vertex:
+    """
+    Reads a Polygon structure and stores it
+    """
     def __init__(self, fh=None):
-
-        self.position = None # Vector
-        self.normal = None # Vector (normalized, length 1)
+        self.position = None    # Vector
+        self.normal = None      # Vector (normalized, length 1)
 
         if fh:
             self.read(fh)
 
     def read(self, fh):
-        self.position = struct.unpack("=fff", fh.read(12))
-        self.normal = struct.unpack("=fff", fh.read(12))
-        # self.position = Vector(fh)
-        # self.normal = Vector(fh)
+        # Stores position and normal as a vector
+        self.position = Vector(fh)
+        self.normal = Vector(fh)
 
     def __str__(self):
         return ("====   VERTEX   ====\n"
@@ -193,26 +250,155 @@ class Vertex:
                 ).format(self.position, self.normal)
 
 class UV:
+    """
+    Reads UV-map structure and stores it
+    """
     def __init__(self, fh=None):
-
-        self.u = 0
-        self.v = 0
+        self.u = 0      # rvfloat
+        self.v = 0      # rvfloat
 
         if fh:
             self.read(fh)
 
     def read(self, fh):
+        # Read the uv coordinates
+        self.u = struct.unpack("<f", fh.read(4))
+        self.v = struct.unpack("<f", fh.read(4))
 
-        self.u = struct.unpack("=f", fh.read(4))
-        self.v = struct.unpack("=f", fh.read(4))
+    def __iter__(self):
+        return (x, y)
 
     def __str__(self):
         return "({}, {})".format(self.u, self.v)
 
+class BigCube:
+    """
+    Reads a BigCube structure and stores it
+    BigCubes are used for in-game optimization (culling)
+    """
+    def __init__(self, fh=None):
+        self.center = None      # center/position of the cube, Vector
+        self.size = 0           # rvfloat, size of the cube
+
+        self.mesh_count = 0     # rvlong, amount of meshes
+        self.mesh_indices = []  # indices of meshes that belong to the cube
+
+        if fh:
+            self.read(fh)
+
+    def read(self, fh):
+        # Reads center and size of the cube
+        self.center = Vector(fh)
+        self.size = struct.unpack("<f", fh.read(4))[0]
+
+        # Reads amount of meshes and then the indices of the meshes
+        self.mesh_count = struct.unpack("<l", fh.read(4))[0]
+        for mesh in range(self.mesh_count):
+            self.mesh_indices.append(struct.unpack("<l", fh.read(4))[0])
+
+    def __str__(self):
+        return ("====   BIGCUBE   ====\n"
+                "Center: {}\n"
+                "Size: {}\n"
+                "Mesh Count: {}\n"
+                "Mesh Indices: {}\n"
+                "==== BIGCUBE END ====\n"
+                ).format(self.center,
+                         self.size,
+                         self.mesh_count,
+                         self.mesh_indices)
+
+
+class TexAnimation:
+    """
+    Reads and stores a texture animation of a .w file
+    """
+    def __init__(self, fh=None):
+
+        self.frame_count = 0    # rvlong, amount of frames
+        self.frames = []        # Frame objects
+
+        if fh:
+            self.read(fh)
+
+    def read(self, fh):
+        # Reads the amount of frames
+        self.frame_count = struct.unpack("<l", fh.read(4))[0]
+
+        # Reads the frames themselves
+        for frame in range(self.frame_count):
+            self.frames.append(Frame(fh))
+
+    def __str__(self):
+        return ("====   ANIMATION   ====\n"
+                "Frame Count: {}\n"
+                "Frames\n{}"
+                "==== ANIMATION END ====\n"
+                ).format(self.frame_count,
+                         '\n'.join([str(frame) for frame in self.frames]))
+
+class Frame:
+    """
+    Reads and stores exactly one texture animation frame
+    """
+    def __init__(self, fh=None):
+
+        self.texture = 0    # texture id of the animated texture
+        self.delay = 0      # delay in milliseconds
+        self.uv = []        # list of 4 UV coordinates
+
+        if fh:
+            self.read(fh)
+
+    def read(self, fh):
+        # Reads the texture id
+        self.texture = struct.unpack("<l", fh.read(4))[0]
+        # Reads the delay
+        self.delay = struct.unpack("<f", fh.read(4))[0]
+
+        # Reads the UV coordinates for this frame
+        for uv in range(4):
+            self.uv.append(UV(fh))
+
+    def __str__(self):
+        return ("====   FRAME   ====\n"
+                "Texture: {}\n"
+                "Delay{}\n"
+                "UV: {}\n"
+                "==== FRAME END ====\n"
+                ).format(self.texture,
+                         self.delay,
+                         '\n'.join([str(uv) for uv in self.uv]))
+
+class EnvList:
+    """
+    Reads and stores the list of environment vertex colors of a .w file
+    """
+    def __init__(self):
+        # list with length of the number of bit-11 polys
+        self.env_colors = []    # unsigned rvlongs
+
+        if fh:
+            self.read(fh)
+
+    def read(self, fh):
+        # Reads the colors times the amount of env-enabled polygons
+        # TODO
+        self.env_colors = struct.unpack("<L", fh.read(4))[0]
+
+    def __iter__(self):
+        return self.env_colors
+
+    def __str__(self):
+        return self.env_colors
+
+
+# Test
 testw = World()
 
-fh = open("/home/yethiel/Applications/RVGL/levels/muse1/muse1.w", "rb")
+fh = open("/home/yethiel/test.w", "rb")
 testw.read(fh)
 print(testw)
 
 fh.close()
+
