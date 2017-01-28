@@ -13,7 +13,7 @@ def encode_mesh(fh, bm, matrix, include_textures, faces = None, verts = None):
         verts = list(bm.verts)
     
     # Writes number of polygons and vertices.
-    fh.write(struct.pack("hh", len(faces), len(verts)))
+    fh.write(struct.pack("<hh", len(faces), len(verts)))
     
     # Gets active texture-, uv- and color layers.
     tex_lay = bm.faces.layers.tex.active
@@ -38,30 +38,30 @@ def encode_mesh(fh, bm, matrix, include_textures, faces = None, verts = None):
 
 
         # Writes type and texture.
-        fh.write(struct.pack("hh", type, texture))
+        fh.write(struct.pack("<hh", type, texture))
         looping = [2, 1, 0, 3] if len(face.verts) < 4 else [3, 2, 1, 0]
         
         # Writes vertex indices.
         vertex_indices = [verts.index(face.verts[i]) if i < len(face.verts) else 0 for i in looping]
-        fh.write(struct.pack("hhhh", vertex_indices[0], vertex_indices[1], vertex_indices[2], vertex_indices[3]))
+        fh.write(struct.pack("<hhhh", vertex_indices[0], vertex_indices[1], vertex_indices[2], vertex_indices[3]))
         
         # Writes color and alpha.
         for i in looping:
             color = face.loops[i][color_lay] if i < len(face.loops) and color_lay != None else Color((1, 1, 1))
             alpha = face.loops[i][alpha_lay] if i < len(face.loops) and alpha_lay != None else Color((1, 1, 1))
-            fh.write(struct.pack("BBBB", int(color.r * 255), int(color.g * 255), int(color.b * 255), int(alpha.v * 255)))
+            fh.write(struct.pack("<BBBB", int(color.r * 255), int(color.g * 255), int(color.b * 255), int(alpha.v * 255)))
         
         # Writes UV.
         for i in looping:
             uv = face.loops[i][uv_lay].uv if i < len(face.loops) and uv_lay != None else [0, 0]
-            fh.write(struct.pack("ff", uv[0], 1 - uv[1]))
+            fh.write(struct.pack("<ff", uv[0], 1 - uv[1]))
     
     # Loops through each vertex
     for vertex in verts:
         co = Vector(vertex.co) * matrix
         normal = revolt_fix(vertex.normal, 1)
-        fh.write(struct.pack("fff", co[0], co[1], co[2]))
-        fh.write(struct.pack("fff", normal[0], normal[1], normal[2]))
+        fh.write(struct.pack("<fff", co[0], co[1], co[2]))
+        fh.write(struct.pack("<fff", normal[0], normal[1], normal[2]))
         
 # Exports a model. (PRM-/M-file)
 def export_model(filepath, matrix, include_textures, mesh = None):
@@ -77,28 +77,28 @@ def export_world(filepath, matrix, mesh = None):
     bm = bmesh.new()
     bm.from_mesh(mesh or bpy.context.object.data)
     fh = open(filepath, "wb")
-    fh.write(struct.pack("l", len(bm.faces)))
+    fh.write(struct.pack("<l", len(bm.faces)))
     
     # Loops through each face.
     for face in bm.faces:
         c = Vector(face.calc_center_bounds()) * matrix
         r = max([get_distance(Vector(v.co) * matrix, c) for v in face.verts])
-        fh.write(struct.pack("ffff", c[0], c[1], c[2], r))
+        fh.write(struct.pack("<ffff", c[0], c[1], c[2], r))
         p1 = Vector([min([v.co.x for v in face.verts]), min([v.co.y for v in face.verts]), min([v.co.z for v in face.verts])]) * matrix
         p2 = Vector([max([v.co.x for v in face.verts]), max([v.co.y for v in face.verts]), max([v.co.z for v in face.verts])]) * matrix
-        fh.write(struct.pack("ffffff", p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]))
+        fh.write(struct.pack("<ffffff", p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]))
         encode_mesh(fh, bm, matrix, True, [face], list(face.verts))
     
     # Writes a "FunnyBall" surrounding the whole level
     p1 = Vector([min([v.co.x for v in bm.verts]), min([v.co.y for v in bm.verts]), min([v.co.z for v in bm.verts])]) * matrix
     p2 = Vector([max([v.co.x for v in bm.verts]), max([v.co.y for v in bm.verts]), max([v.co.z for v in bm.verts])]) * matrix
-    fh.write(struct.pack("lffff", 1, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, (p1.z + p2.z) / 2, get_distance(p1, p2) / 2))
-    fh.write(struct.pack("l", len(bm.faces)))
+    fh.write(struct.pack("<lffff", 1, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, (p1.z + p2.z) / 2, get_distance(p1, p2) / 2))
+    fh.write(struct.pack("<l", len(bm.faces)))
     for i in range(len(bm.faces)):
-        fh.write(struct.pack("l", i))
+        fh.write(struct.pack("<l", i))
     
     # Writes an "UnknownList" with length 0.
-    fh.write(struct.pack("l", 0))
+    fh.write(struct.pack("<l", 0))
     
     fh.close()
     bm.free()
@@ -166,7 +166,7 @@ def export_hitbox(filepath, matrix, mesh = None):
     bm = bmesh.new()
     bm.from_mesh(mesh or bpy.context.object.data)
     fh = open(filepath, "wb")
-    fh.write(struct.pack("h", len(bm.faces)))
+    fh.write(struct.pack("<h", len(bm.faces)))
     material_layer = bm.faces.layers.int.get("revolt_material") or bm.faces.layers.int.new("revolt_material")
     
     print(fh.name)
@@ -174,14 +174,14 @@ def export_hitbox(filepath, matrix, mesh = None):
     # Loops through each face.
     for face in bm.faces:
         # Writes face type (tris / quad) and material. (see panels/face_properties_panel.py for available material types)
-        fh.write(struct.pack("ll", 0 if len(face.verts) < 4 else 1, face[material_layer]))
+        fh.write(struct.pack("<ll", 0 if len(face.verts) < 4 else 1, face[material_layer]))
         
         # Writes the floor plane
         normal = face.normal * matrix
         normal.length = 1
         point = face.verts[0].co * matrix
         distance = -point.x * normal.x - point.y * normal.y - point.z * normal.z
-        fh.write(struct.pack("ffff", normal[0], normal[1], normal[2], distance))
+        fh.write(struct.pack("<ffff", normal[0], normal[1], normal[2], distance))
         
         # Writes each cutting plane.
         vertex_count = len(face.verts[:4])
@@ -191,30 +191,30 @@ def export_hitbox(filepath, matrix, mesh = None):
             normal2 = normal.cross(a - b)
             normal2.length = 1
             distance = -a.x * normal2.x - a.y * normal2.y - a.z * normal2.z
-            fh.write(struct.pack("ffff", normal2[0], normal2[1], normal2[2], distance))
+            fh.write(struct.pack("<ffff", normal2[0], normal2[1], normal2[2], distance))
             
         # Writes the rest of the cutting planes if the number of edges is lower than four.
         for i in range(4 - vertex_count):
-            fh.write(struct.pack("ffff", 0, 0, 0, 0))
+            fh.write(struct.pack("<ffff", 0, 0, 0, 0))
         
         # Writes bounding box.
         verts = [v.co * matrix for v in face.verts]
         min_point = [min([v.x for v in verts]), min([v.y for v in verts]), min([v.z for v in verts])]
         max_point = [max([v.x for v in verts]), max([v.y for v in verts]), max([v.z for v in verts])]
-        fh.write(struct.pack("ffffff", min_point[0], max_point[0], min_point[1], max_point[1], min_point[2], max_point[2]))
+        fh.write(struct.pack("<ffffff", min_point[0], max_point[0], min_point[1], max_point[1], min_point[2], max_point[2]))
         
     # Writes the lookup grid.
     x_coords = [(v.co * matrix).x for v in bm.verts]
     z_coords = [(v.co * matrix).z for v in bm.verts]
-    fh.write(struct.pack("fffff", min(x_coords), min(z_coords), 1, 1, max([max(x_coords) - min(x_coords), max(z_coords) - min(z_coords)])))
+    fh.write(struct.pack("<fffff", min(x_coords), min(z_coords), 1, 1, max([max(x_coords) - min(x_coords), max(z_coords) - min(z_coords)])))
     
     #min_point = Vector([min([v.co.x for v in bm.verts]), min([v.co.y for v in bm.verts])])
     #max_point = Vector([max([v.co.x for v in bm.verts]), max([v.co.y for v in bm.verts])])
-    #fh.write(struct.pack("fffff", min_point.x / scale, min_point.y / scale, 1, 1, max([max_point.x - min_point.x, max_point.y - min_point.y]) / scale))
+    #fh.write(struct.pack("<fffff", min_point.x / scale, min_point.y / scale, 1, 1, max([max_point.x - min_point.x, max_point.y - min_point.y]) / scale))
     
-    fh.write(struct.pack("l", len(bm.faces)))
+    fh.write(struct.pack("<l", len(bm.faces)))
     for i in range(len(bm.faces)):
-        fh.write(struct.pack("l", i))
+        fh.write(struct.pack("<l", i))
         
     fh.close()
     bm.free()
@@ -224,7 +224,7 @@ def export_world_models(filepath, matrix, objects):
     fh = open(filepath, "wb")
     
     # Writes the number of objects.
-    fh.write(struct.pack("l", len(objects)))
+    fh.write(struct.pack("<l", len(objects)))
     
     # Loops through each object.
     for obj in objects:
@@ -234,7 +234,7 @@ def export_world_models(filepath, matrix, objects):
         v2 = -Vector((obj.matrix_local[0].z, obj.matrix_local[1].z, obj.matrix_local[2].z)) * matrix.normalized()
         v3 = Vector((obj.matrix_local[0].y, obj.matrix_local[1].y, obj.matrix_local[2].y)) * matrix.normalized()
         location = obj.location * matrix
-        fh.write(struct.pack("BBBLBBBBfffffffffffff", 0, 0, 0, 0, 0, 0, 0, 0, 0, location.x, location.y, location.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z, v3.x, v3.y, v3.z))
+        fh.write(struct.pack("<BBBLBBBBfffffffffffff", 0, 0, 0, 0, 0, 0, 0, 0, 0, location.x, location.y, location.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z, v3.x, v3.y, v3.z))
         
     fh.close()
     
@@ -251,21 +251,21 @@ def export_convex_hull(filepath, scale, mesh = None):
     faces = [x for x in data["geom"] if type(x) is bmesh.types.BMFace]
     
     # Let's write the hull. I don't see the point in using multiple hulls so we're just gonna go with one.
-    fh.write(struct.pack("hhhh", 1, len(verts), len(edges), len(faces)))
+    fh.write(struct.pack("<hhhh", 1, len(verts), len(edges), len(faces)))
     
     # Writes the bounding box.
     co = [revolt_fix(v.co, scale) for v in verts]
-    fh.write(struct.pack("ffffff", min([v.x for v in co]), max([v.x for v in co]), min([v.y for v in co]), max([v.y for v in co]), min([v.z for v in co]), max([v.z for v in co])))
-    fh.write(struct.pack("fff", 0, 0, 0))
+    fh.write(struct.pack("<ffffff", min([v.x for v in co]), max([v.x for v in co]), min([v.y for v in co]), max([v.y for v in co]), min([v.z for v in co]), max([v.z for v in co])))
+    fh.write(struct.pack("<fff", 0, 0, 0))
     
     # Loops through each vertex.
     for vert in verts:
         co = revolt_fix(vert.co, scale)
-        fh.write(struct.pack("fff", co.x, co.y, co.z))
+        fh.write(struct.pack("<fff", co.x, co.y, co.z))
     
     # Loops through each edge.
     for edge in edges:
-        fh.write(struct.pack("hh", verts.index(edge.verts[0]), verts.index(edge.verts[1])))
+        fh.write(struct.pack("<hh", verts.index(edge.verts[0]), verts.index(edge.verts[1])))
     
     # Loops through each face.
     for face in faces:
@@ -275,7 +275,7 @@ def export_convex_hull(filepath, scale, mesh = None):
         
         # The faces are stored in the file as planes so we need to get the distance from the origin.
         distance = -point.x * normal.x - point.y * normal.y - point.z * normal.z
-        fh.write(struct.pack("ffff", normal.x, normal.y, normal.z, revolt_fix(distance, scale)))
+        fh.write(struct.pack("<ffff", normal.x, normal.y, normal.z, revolt_fix(distance, scale)))
     
     # So the convex hull is filled with spheres so let's try to fill it. First of, we need to find suitable locations for each sphere so we need a grid basically.
     count_x, count_y, count_z = 5, 5, 5
@@ -299,12 +299,12 @@ def export_convex_hull(filepath, scale, mesh = None):
                     spheres_locations.append([sphere, min([distance[1] - distance[0] for distance in distances])])
                     
     # Writes the number of spheres.
-    fh.write(struct.pack("h", len(spheres_locations)))
+    fh.write(struct.pack("<h", len(spheres_locations)))
     
     # Writes each sphere.
     for sphere in spheres_locations:
         co = revolt_fix(sphere[0], scale)
-        fh.write(struct.pack("ffff", co.x, co.y, co.z, revolt_fix(sphere[1], scale)))
+        fh.write(struct.pack("<ffff", co.x, co.y, co.z, revolt_fix(sphere[1], scale)))
     
     fh.close()
     bm.free()
@@ -314,13 +314,13 @@ def export_world_objects(filepath, matrix, objects):
     object_types = {item[0] : i - 1 for i,item in enumerate(bpy.types.RevoltObjectProperties.object_type[1]["items"])}
     
     fh = open(filepath, "wb")
-    fh.write(struct.pack("l", len(objects)))
+    fh.write(struct.pack("<l", len(objects)))
     for obj in objects:
         object_type = object_types[obj.revolt.object_type]
         up = (-Vector((obj.matrix_local[0].z, obj.matrix_local[1].z, obj.matrix_local[2].z)) * matrix).normalized()
         forward = (Vector((obj.matrix_local[0].y, obj.matrix_local[1].y, obj.matrix_local[2].y)) * matrix).normalized()
         location = obj.location * matrix
-        fh.write(struct.pack("lllllfffffffff", object_type, obj.revolt.flag1_long, obj.revolt.flag2_long, obj.revolt.flag3_long, obj.revolt.flag4_long, location.x, location.y, location.z, up.x, up.y, up.z, forward.x, forward.y, forward.z))
+        fh.write(struct.pack("<lllllfffffffff", object_type, obj.revolt.flag1_long, obj.revolt.flag2_long, obj.revolt.flag3_long, obj.revolt.flag4_long, location.x, location.y, location.z, up.x, up.y, up.z, forward.x, forward.y, forward.z))
     fh.close()
 
 # This method converts a Blender coordinate to a Re-Volt coordinate. In Re-Volt the Y-axis is up and inverted. In Blender the Z-axis is up.
