@@ -1,6 +1,5 @@
 import struct
 
-
 class World:
     """
     Reads a .w file and stores all sub-structures
@@ -51,6 +50,32 @@ class World:
         # Reads the environment colors
         self.env_list = EnvList(fh, self)
         
+    def write(self, fh):
+        # Writes the mesh count
+        fh.write(struct.pack("<l", self.mesh_count))
+
+        # Writes all meshes, gives reference to self for env count
+        for mesh in self.meshes:
+            mesh.write(fh)
+
+        # Writes the count of BigCubes
+        fh.write(struct.pack("<l", self.bigcube_count))
+
+        # Writes all BigCubes
+        for bcube in self.bigcubes:
+            bcube.write(fh)
+
+        # Writes the count of texture animations
+        fh.write(struct.pack("<l", self.animation_count))
+
+        # Writes all texture animations
+        for anim in self.animations:
+            anim.write(fh)
+
+        # Writes the env color list and its length as the final step 
+        fh.write(struct.pack("<l", self.env_count))
+        self.env_list.write(fh)
+        
     # Uses the to-string for dumping the whole .w structure
     def __str__(self):
         return ("====   WORLD   ====\n"
@@ -100,7 +125,6 @@ class Mesh:
         # Reads bounding "ball" center and the radius
         self.bound_ball_center = Vector(fh)
         self.bound_ball_radius = struct.unpack("<f", fh.read(4))[0]
-
         self.bbox = BoundingBox(fh)
 
         # Reads amount of polygons/vertices and the structures themselves
@@ -113,6 +137,22 @@ class Mesh:
 
         for vertex in range(self.vertex_count):
             self.vertices.append(Vertex(fh))
+            
+    def write(self, fh):
+        # Writes bounding "ball" center and the radius and then the bounding box
+        self.bound_ball_center.write(fh)
+        fh.write(struct.pack("<f", self.bound_ball_radius))
+        self.bbox.write(fh)
+
+        # Writes amount of polygons/vertices and the structures themselves
+        fh.write(struct.pack("<h", self.polygon_count))
+        fh.write(struct.pack("<h", self.vertex_count))
+
+        # Also give the polygon a reference to w so it can write the env bit
+        for polygon in self.polygons:
+            polygon.write(fh)
+        for vertex in self.vertices:
+            vertex.write(fh)
 
     def __str__(self):
         return ("====   MESH   ====\n"
@@ -131,6 +171,7 @@ class Mesh:
                         self.vertex_count,
                         '\n'.join([str(polygon) for polygon in self.polygons]),
                         '\n'.join([str(vertex) for vertex in self.vertices]))
+
 
 class BoundingBox:
     """
@@ -154,6 +195,11 @@ class BoundingBox:
         self.xlo, self.xhi = struct.unpack("<ff", fh.read(8))
         self.ylo, self.yhi = struct.unpack("<ff", fh.read(8))
         self.zlo, self.zhi = struct.unpack("<ff", fh.read(8))
+        
+    def write(self, fh):
+        # Writes all boundaries
+        fh.write(struct.pack("<6f", self.xlo, self.xhi, self.ylo, 
+                        self.yhi, self.zlo, self.zhi))
 
     def __str__(self):
         return (
@@ -166,8 +212,6 @@ class BoundingBox:
                ).format(self.xlo, self.xhi, self.ylo, 
                         self.yhi, self.zlo, self.zhi)
 
-    def __iter__(self):
-        return [self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi]
 
 class Vector:
     """
@@ -185,12 +229,14 @@ class Vector:
         # Reads the coordinates
         vec = struct.unpack("<fff", fh.read(12))
         self.x, self.y, self.z = vec
-
-    def __iter__(self):
-        return (x, y, z)
+        
+    def write(self, fh):
+        # Writes all coordinates
+        fh.write(struct.pack("<3f", self.x, self.y, self.z))
 
     def __str__(self):
         return "({}, {}, {})".format(self.x, self.y, self.z)
+
 
 class Polygon:
     """
@@ -226,6 +272,21 @@ class Polygon:
         # Tells the .w if bit 11 (environment map) is enabled for this
         if self.w and self.type & 2048: 
                 self.w.env_count += 1
+                
+    def write(self, fh):
+        # Writes the type bitfield and the texture index
+        fh.write(struct.pack("<h", self.type))
+        fh.write(struct.pack("<h", self.texture))
+
+        # Writes indices of the polygon's vertices and their vertex colors
+        for ind in self.vertex_indices:
+            fh.write(struct.pack("<h", ind))
+        for col in self.colors:
+            fh.write(struct.pack("<L", col))
+
+        # Writes the UV coordinates
+        for uv in self.uv:
+            uv.write(fh)
 
     def __str__(self):
         return ("====   POLYGON   ====\n"
@@ -257,6 +318,11 @@ class Vertex:
         # Stores position and normal as a vector
         self.position = Vector(fh)
         self.normal = Vector(fh)
+        
+    def write(self, fh):
+        # Writes position and normal as a vector
+        self.position.write(fh)
+        self.normal.write(fh)
 
     def __str__(self):
         return ("====   VERTEX   ====\n"
@@ -265,27 +331,31 @@ class Vertex:
                 "==== VERTEX END ====\n"
                 ).format(self.position, self.normal)
 
+
 class UV:
     """
     Reads UV-map structure and stores it
     """
     def __init__(self, fh=None):
-        self.u = 0      # rvfloat
-        self.v = 0      # rvfloat
+        self.u = 0.0     # rvfloat
+        self.v = 0.0     # rvfloat
 
         if fh:
             self.read(fh)
 
     def read(self, fh):
-        # Read the uv coordinates
+        # Reads the uv coordinates
         self.u = struct.unpack("<f", fh.read(4))[0]
         self.v = struct.unpack("<f", fh.read(4))[0]
-
-    def __iter__(self):
-        return (x, y)
+        
+    def write(self, fh):
+        # Writes the uv coordinates
+         fh.write(struct.pack("<f", self.u))
+         fh.write(struct.pack("<f", self.v))
 
     def __str__(self):
         return "({}, {})".format(self.u, self.v)
+
 
 class BigCube:
     """
@@ -311,6 +381,16 @@ class BigCube:
         self.mesh_count = struct.unpack("<l", fh.read(4))[0]
         for mesh in range(self.mesh_count):
             self.mesh_indices.append(struct.unpack("<l", fh.read(4))[0])
+            
+    def write(self, fh):
+        # Writes center and size of the cube
+        self.center.write(fh)
+        fh.write(struct.pack("<f", self.size))
+
+        # Writes amount of meshes and then the indices of the meshes
+        fh.write(struct.pack("<l", self.mesh_count))
+        for mesh in self.mesh_indices:
+            fh.write(struct.pack("<l", mesh))
 
     def __str__(self):
         return ("====   BIGCUBE   ====\n"
@@ -343,6 +423,14 @@ class TexAnimation:
         # Reads the frames themselves
         for frame in range(self.frame_count):
             self.frames.append(Frame(fh))
+            
+    def write(self, fh):
+        # Writes the amount of frames
+        fh.write(struct.pack("<l", self.frame_count))
+
+        # Writes the frames
+        for frame in self.frames:
+            frame.write(fh)
 
     def __str__(self):
         return ("====   ANIMATION   ====\n"
@@ -351,6 +439,7 @@ class TexAnimation:
                 "==== ANIMATION END ====\n"
                 ).format(self.frame_count,
                          '\n'.join([str(frame) for frame in self.frames]))
+
 
 class Frame:
     """
@@ -373,6 +462,16 @@ class Frame:
         # Reads the UV coordinates for this frame
         for uv in range(4):
             self.uv.append(UV(fh))
+            
+    def write(self, fh):
+        # Writes the texture id
+        fh.write(struct.pack("<l", self.texture))
+        # Writes the delay
+        fh.write(struct.pack("<f", self.delay))
+
+        # Writes the UV coordinates for this frame
+        for uv in self.uv:
+            uv.write(fh)
 
     def __str__(self):
         return ("====   FRAME   ====\n"
@@ -383,6 +482,7 @@ class Frame:
                 ).format(self.texture,
                          self.delay,
                          '\n'.join([str(uv) for uv in self.uv]))
+
 
 class EnvList:
     """
@@ -403,9 +503,11 @@ class EnvList:
         # Reads the colors times the amount of env-enabled polygons
         for col in range(self.w.env_count):
             self.env_colors.append(struct.unpack("<L", fh.read(4))[0])
-
-    def __iter__(self):
-        return self.env_colors
+            
+    def write(self, fh):
+        # Writes the colors times the amount of env-enabled polygons
+        for col in self.env_colors:
+            fh.write(struct.pack("<L", col))
 
     def __str__(self):
         return str(self.env_colors)
