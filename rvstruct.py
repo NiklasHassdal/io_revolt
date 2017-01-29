@@ -17,9 +17,10 @@ class World:
         self.animation_count = 0        # rvlong, amount of Texture Animations
         self.animations = []            # sequence of TexAnimation structures
 
+        self.env_count = 0              # amount of faces with env enabled
         self.env_list = None            # an EnvList structure
 
-        # if an opened file is supplied, immediately start reading it
+        # Immediately starts reading it if an opened file is supplied
         if fh:
             self.read(fh)
 
@@ -30,7 +31,7 @@ class World:
 
         # Reads the meshes
         for mesh in range(self.mesh_count):
-            self.meshes.append(Mesh(fh))
+            self.meshes.append(Mesh(fh, self))
 
         # Reads the amount of bigcubes
         self.bigcube_count = struct.unpack("<l", fh.read(4))[0]
@@ -45,6 +46,9 @@ class World:
         # Reads all animations
         for anim in range(self.animation_count):
             self.animations.append(TexAnimation(fh))
+
+        # Reads the environment colors
+        self.env_list = EnvList(fh, self)
         
     # Uses the to-string for dumping the whole .w structure
     def __str__(self):
@@ -55,13 +59,17 @@ class World:
                 "BigCubes:\n{}\n"
                 "Animation Count: {}\n"
                 "Animations:\n{}\n"
+                "ENV Count: {}\n"
+                "EnvList:\n{}\n"
                 "==== WORLD END ====\n"
                ).format(self.mesh_count, 
                '\n'.join([str(mesh) for mesh in self.meshes]),
                self.bigcube_count,
                '\n'.join([str(bcube) for bcube in self.bigcubes]),
                self.animation_count,
-               '\n'.join([str(anim) for anim in self.animations]))
+               '\n'.join([str(anim) for anim in self.animations]),
+               self.env_count,
+               self.env_list)
 
 
 class Mesh:
@@ -70,10 +78,11 @@ class Mesh:
     These are different from PRM meshes since they also contain
     bounding boxes.
     """
-    def __init__(self, fh=None):
+    def __init__(self, fh=None, w=None):
+        self.w = w                      # World it belongs to
 
         self.bound_ball_center = None   # Vector
-        self.bound_ball_radius = None   # Vector
+        self.bound_ball_radius = None   # rvfloat
 
         self.bbox = None                # BoundingBox
 
@@ -89,7 +98,7 @@ class Mesh:
     def read(self, fh):
         
         # Reads bounding "ball" center and the radius
-        self.bound_ball_center = struct.unpack("<d", fh.read(12))
+        self.bound_ball_center = Vector(fh)
         self.bound_ball_radius = struct.unpack("<f", fh.read(4))[0]
 
         self.bbox = BoundingBox(fh)
@@ -98,8 +107,9 @@ class Mesh:
         self.polygon_count = struct.unpack("<h", fh.read(2))[0]
         self.vertex_count = struct.unpack("<h", fh.read(2))[0]
 
+        # Also give the polygon a reference to w so it can report if env is on
         for polygon in range(self.polygon_count):
-            self.polygons.append(Polygon(fh))
+            self.polygons.append(Polygon(fh, self.w))
 
         for vertex in range(self.vertex_count):
             self.vertices.append(Vertex(fh))
@@ -141,9 +151,9 @@ class BoundingBox:
 
     def read(self, fh):
         # Reads boundaries
-        self.xlo, self.xhi = struct.unpack("<d", fh.read(8))
-        self.ylo, self.yhi = struct.unpack("<d", fh.read(8))
-        self.zlo, self.zhi = struct.unpack("<d", fh.read(8))
+        self.xlo, self.xhi = struct.unpack("<ff", fh.read(8))
+        self.ylo, self.yhi = struct.unpack("<ff", fh.read(8))
+        self.zlo, self.zhi = struct.unpack("<ff", fh.read(8))
 
     def __str__(self):
         return (
@@ -173,7 +183,7 @@ class Vector:
 
     def read(self, fh):
         # Reads the coordinates
-        vec = struct.unpack("<d", fh.read(12))
+        vec = struct.unpack("<fff", fh.read(12))
         self.x, self.y, self.z = vec
 
     def __iter__(self):
@@ -187,14 +197,16 @@ class Polygon:
     """
     Reads a Polygon structure and stores it
     """
-    def __init__(self, fh=None):
+    def __init__(self, fh=None, w=None):
+        self.w = w                  # World it belongs to
+
         self.type = None            # rvshort
         self.texture = None         # rvshort
 
         self.vertex_indices = []    # 4 rvshorts
         self.colors = []            # 4 unsigned rvlongs
 
-        self.uv = []                # UV structures
+        self.uv = []                # UV structures (4)
 
         if fh:
             self.read(fh)
@@ -208,8 +220,15 @@ class Polygon:
         self.vertex_indices = struct.unpack("<hhhh", fh.read(8))
         self.colors = struct.unpack("<LLLL", fh.read(16))
 
+        # Reads the UV mapping
         for x in range(4):
             self.uv.append(UV(fh))
+
+        # Tells the .w if bit 11 (environment map) is enabled for this
+        if self.w:
+            if self.type & 2048: 
+                self.w.env_count += 1
+                print(self.type)
 
     def __str__(self):
         return ("====   POLYGON   ====\n"
@@ -262,8 +281,8 @@ class UV:
 
     def read(self, fh):
         # Read the uv coordinates
-        self.u = struct.unpack("<f", fh.read(4))
-        self.v = struct.unpack("<f", fh.read(4))
+        self.u = struct.unpack("<f", fh.read(4))[0]
+        self.v = struct.unpack("<f", fh.read(4))[0]
 
     def __iter__(self):
         return (x, y)
@@ -363,8 +382,8 @@ class Frame:
     def __str__(self):
         return ("====   FRAME   ====\n"
                 "Texture: {}\n"
-                "Delay{}\n"
-                "UV: {}\n"
+                "Delay: {}\n"
+                "UV:\n{}\n"
                 "==== FRAME END ====\n"
                 ).format(self.texture,
                          self.delay,
@@ -374,7 +393,9 @@ class EnvList:
     """
     Reads and stores the list of environment vertex colors of a .w file
     """
-    def __init__(self):
+    def __init__(self, fh=None, w=None):
+        self.w = w              # World it belongs to
+
         # list with length of the number of bit-11 polys
         self.env_colors = []    # unsigned rvlongs
 
@@ -383,20 +404,20 @@ class EnvList:
 
     def read(self, fh):
         # Reads the colors times the amount of env-enabled polygons
-        # TODO
-        self.env_colors = struct.unpack("<L", fh.read(4))[0]
+        for col in range(self.w.env_count):
+            self.env_colors.append(struct.unpack("<L", fh.read(4))[0])
 
     def __iter__(self):
         return self.env_colors
 
     def __str__(self):
-        return self.env_colors
+        return str(self.env_colors)
 
 
 # Test
 testw = World()
 
-fh = open("/home/yethiel/test.w", "rb")
+fh = open("/home/yethiel/Applications/RVGL/levels/muse2/muse2.w", "rb")
 testw.read(fh)
 print(testw)
 
