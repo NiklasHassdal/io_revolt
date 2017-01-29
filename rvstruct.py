@@ -5,9 +5,10 @@ class World:
     """
     Reads a .w file and stores all sub-structures
     All contained objects are of a similar structure.
+    Usage: Objects of this class can be created to read and store .w files.
+    If an opened file is supplied, it immediately starts reading from it.
     """
     def __init__(self, fh=None):
-
         self.mesh_count = 0             # rvlong, amount of Mesh objects
         self.meshes = []                # sequence of Mesh structures
 
@@ -25,11 +26,11 @@ class World:
             self.read(fh)
 
     def read(self, fh):
-
         # Reads the mesh count (one rvlong)
         self.mesh_count = struct.unpack("<l", fh.read(4))[0]
 
-        # Reads the meshes
+        # Reads the meshes. Gives the meshes a reference to itself so env_count
+        # can be set by the Polygon objects
         for mesh in range(self.mesh_count):
             self.meshes.append(Mesh(fh, self))
 
@@ -96,7 +97,6 @@ class Mesh:
             self.read(fh)
 
     def read(self, fh):
-        
         # Reads bounding "ball" center and the radius
         self.bound_ball_center = Vector(fh)
         self.bound_ball_radius = struct.unpack("<f", fh.read(4))[0]
@@ -189,7 +189,6 @@ class Vector:
     def __iter__(self):
         return (x, y, z)
 
-
     def __str__(self):
         return "({}, {}, {})".format(self.x, self.y, self.z)
 
@@ -225,10 +224,8 @@ class Polygon:
             self.uv.append(UV(fh))
 
         # Tells the .w if bit 11 (environment map) is enabled for this
-        if self.w:
-            if self.type & 2048: 
+        if self.w and self.type & 2048: 
                 self.w.env_count += 1
-                print(self.type)
 
     def __str__(self):
         return ("====   POLYGON   ====\n"
@@ -333,7 +330,6 @@ class TexAnimation:
     Reads and stores a texture animation of a .w file
     """
     def __init__(self, fh=None):
-
         self.frame_count = 0    # rvlong, amount of frames
         self.frames = []        # Frame objects
 
@@ -361,7 +357,6 @@ class Frame:
     Reads and stores exactly one texture animation frame
     """
     def __init__(self, fh=None):
-
         self.texture = 0    # texture id of the animated texture
         self.delay = 0      # delay in milliseconds
         self.uv = []        # list of 4 UV coordinates
@@ -392,6 +387,8 @@ class Frame:
 class EnvList:
     """
     Reads and stores the list of environment vertex colors of a .w file
+    The game supports environment maps that make objects look shiny. With this
+    list, they can have individual reflection colors.
     """
     def __init__(self, fh=None, w=None):
         self.w = w              # World it belongs to
@@ -412,14 +409,4 @@ class EnvList:
 
     def __str__(self):
         return str(self.env_colors)
-
-
-# Test
-testw = World()
-
-fh = open("/home/yethiel/Applications/RVGL/levels/muse2/muse2.w", "rb")
-testw.read(fh)
-print(testw)
-
-fh.close()
 
