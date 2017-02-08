@@ -98,6 +98,53 @@ class World:
                self.env_list)
 
 
+class PRM:
+    """
+    Similar to Mesh, reads, stores and writes PRM files
+    """
+    def __init__(self, fh=None):
+        self.polygon_count = 0
+        self.vertex_count = 0
+
+        self.polygons = []
+        self.vertices = []
+
+        if fh:
+            self.read(fh)
+
+    def read(self, fh):
+        self.polygon_count = struct.unpack("<h", fh.read(2))[0]
+        self.vertex_count = struct.unpack("<h", fh.read(2))[0]
+
+        for polygon in range(self.polygon_count):
+            self.polygons.append(Polygon(fh))
+
+        for vertex in range(self.vertex_count):
+            self.vertices.append(Vertex(fh))
+
+    def write(self, fh):
+        # Writes amount of polygons/vertices and the structures themselves
+        fh.write(struct.pack("<h", self.polygon_count))
+        fh.write(struct.pack("<h", self.vertex_count))
+
+        for polygon in self.polygons:
+            polygon.write(fh)
+        for vertex in self.vertices:
+            vertex.write(fh)
+
+    def __str__(self):
+        return ("====   PRM   ====\n"
+                "Polygon Count: {}\n"
+                "Vertex Count: {}\n"
+                "Polygons:\n{}"
+                "Vertices:\n{}"
+                "==== PRM END ====\n"
+               ).format(self.polygon_count,
+                        self.vertex_count,
+                        '\n'.join([str(polygon) for polygon in self.polygons]),
+                        '\n'.join([str(vertex) for vertex in self.vertices]))
+
+
 class Mesh:
     """
     Reads the Meshes found in .w files from an opened file
@@ -144,7 +191,6 @@ class Mesh:
         fh.write(struct.pack("<f", self.bound_ball_radius))
         self.bbox.write(fh)
 
-        # Writes amount of polygons/vertices and the structures themselves
         fh.write(struct.pack("<h", self.polygon_count))
         fh.write(struct.pack("<h", self.vertex_count))
 
